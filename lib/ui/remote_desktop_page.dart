@@ -354,19 +354,30 @@ class _RemoteDesktopPageState extends State<RemoteDesktopPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(_connected ? '远程协助 · 已连接' : '远程协助'),
-        actions: [
-          if (_connected)
-            IconButton(
-              tooltip: '断开',
-              onPressed: _busy ? null : _disconnect,
-              icon: const Icon(Icons.link_off),
-            ),
-        ],
+    // 已连接时拦截返回键 / AppBar 返回：与点「断开」相同（remoteClientDisconnect + 留在本页显示 IP/端口表单），
+    // 避免仅 pop 路由导致 Rust 侧会话未释放、或回到上一页却误以为已断开。
+    return PopScope(
+      canPop: !_connected,
+      onPopInvokedWithResult: (bool didPop, dynamic result) {
+        if (!didPop && _connected) {
+          unawaited(_disconnect());
+        }
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text(_connected ? '远程协助 · 已连接' : '远程协助'),
+          actions: [
+            if (_connected)
+              IconButton(
+                tooltip: '断开',
+                onPressed: _busy ? null : _disconnect,
+                icon: const Icon(Icons.link_off),
+              ),
+          ],
+        ),
+        body:
+            _connected ? _buildConnectedBody(context) : _buildFormBody(context),
       ),
-      body: _connected ? _buildConnectedBody(context) : _buildFormBody(context),
     );
   }
 
