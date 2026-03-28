@@ -263,6 +263,12 @@ class _RemoteDesktopPageState extends State<RemoteDesktopPage> {
   String? _err;
   RdpViewController? _rdp;
 
+  /// 从用户列表点「远程协助」进入时自动发起连接，跳过手动点「连接」。
+  bool get _shouldAutoConnect {
+    final p = widget.prefill;
+    return p != null && p.remoteDesktopPort > 0;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -273,6 +279,14 @@ class _RemoteDesktopPageState extends State<RemoteDesktopPage> {
           ? '${p.remoteDesktopPort}'
           : '0',
     );
+    if (_shouldAutoConnect) {
+      _busy = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          unawaited(_connect());
+        }
+      });
+    }
   }
 
   @override
@@ -357,6 +371,18 @@ class _RemoteDesktopPageState extends State<RemoteDesktopPage> {
   }
 
   Widget _buildFormBody(BuildContext context) {
+    if (_shouldAutoConnect && _busy && _err == null) {
+      return const Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(height: 16),
+            Text('正在连接…'),
+          ],
+        ),
+      );
+    }
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
