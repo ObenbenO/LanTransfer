@@ -10,6 +10,22 @@ use std::net::{TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::sync::{Arc, Mutex, OnceLock};
+
+/// 与 Flutter `HardwareKeyboard` 对齐的修饰键掩码（与 `RemoteKeyEventDto.modifiers` 一致）。
+const MOD_SHIFT: i32 = 1;
+const MOD_CTRL: i32 = 2;
+const MOD_ALT: i32 = 4;
+const MOD_META: i32 = 8;
+const MOD_MASK: i32 = MOD_SHIFT | MOD_CTRL | MOD_ALT | MOD_META;
+
+/// 控制端协议：左/右 Control、Shift、Alt、Meta 共用同一编码，由被控端映射到 enigo 单键。
+const RD_KEY_CONTROL: i32 = -113;
+const RD_KEY_SHIFT: i32 = -114;
+const RD_KEY_ALT: i32 = -115;
+const RD_KEY_META: i32 = -116;
+
+/// 被控端：当前「逻辑上」已按下的修饰键（与 enigo 同步）。
+static RD_HOST_MOD_STATE: Mutex<i32> = Mutex::new(0);
 use std::thread;
 use std::time::Duration;
 
@@ -115,13 +131,14 @@ fn pointer_kind_byte(kind: &str) -> u8 {
 
 pub fn encode_pointer_msg(e: &RemotePointerEventDto) -> Vec<u8> {
     let k = pointer_kind_byte(&e.kind);
-    let mut v = Vec::with_capacity(30);
+    let mut v = Vec::with_capacity(34);
     v.push(MSG_POINTER);
     v.push(k);
     v.extend_from_slice(&e.x.to_le_bytes());
     v.extend_from_slice(&e.y.to_le_bytes());
     v.extend_from_slice(&e.button.to_le_bytes());
     v.extend_from_slice(&e.delta.to_le_bytes());
+    v.extend_from_slice(&e.modifiers.to_le_bytes());
     v
 }
 
@@ -433,6 +450,128 @@ fn map_pointer_to_screen(
     )
 }
 
+fn modifier_bit_to_enigo_key(bit: i32) -> Option<Key> {
+    Some(match bit {
+        x if x == MOD_SHIFT => Key::Shift,
+        x if x == MOD_CTRL => Key::Control,
+        x if x == MOD_ALT => Key::Alt,
+        x if x == MOD_META => Key::Meta,
+        _ => return None,
+    })
+}
+
+fn sync_modifiers_from_mask(enigo: &mut Enigo, target: i32) -> Result<(), ApiError> {
+    let target = target & MOD_MASK;
+    let mut g = RD_HOST_MOD_STATE
+        .lock()
+        .map_err(|_| ApiError::new("INTERNAL", "修饰键状态锁"))?;
+    let current = *g & MOD_MASK;
+    if current == target {
+        return Ok(());
+    }
+    // 先松开：高位优先，与常见「先松后按」顺序一致。
+    for bit in [MOD_META, MOD_ALT, MOD_CTRL, MOD_SHIFT] {
+        if (current & bit) != 0 && (target & bit) == 0 {
+            if let Some(k) = modifier_bit_to_enigo_key(bit) {
+                enigo
+                    .key(k, Direction::Release)
+                    .map_err(|e| ApiError::new("RD_INPUT", format!("修饰键松开: {e}")))?;
+            }
+        }
+    }
+    // 再按下：Ctrl → Shift → Alt → Meta（与 Ctrl+Shift 组合常见顺序一致）。
+    for bit in [MOD_CTRL, MOD_SHIFT, MOD_ALT, MOD_META] {
+        if (target & bit) != 0 && (current & bit) == 0 {
+            if let Some(k) = modifier_bit_to_enigo_key(bit) {
+                enigo
+                    .key(k, Direction::Press)
+                    .map_err(|e| ApiError::new("RD_INPUT", format!("修饰键按下: {e}")))?;
+            }
+        }
+    }
+    *g = (*g & !MOD_MASK) | target;
+    Ok(())
+}
+
+fn apply_modifier_key_event(enigo: &mut Enigo, key_code: i32, down: bool) -> Result<(), ApiError> {
+    let (bit, k) = match key_code {
+        RD_KEY_CONTROL => (MOD_CTRL, Key::Control),
+        RD_KEY_SHIFT => (MOD_SHIFT, Key::Shift),
+        RD_KEY_ALT => (MOD_ALT, Key::Alt),
+        RD_KEY_META => (MOD_META, Key::Meta),
+        _ => return Ok(()),
+    };
+    let dir = if down {
+        Direction::Press
+    } else {
+        Direction::Release
+    };
+    enigo
+        .key(k, dir)
+        .map_err(|e| ApiError::new("RD_INPUT", format!("修饰键: {e}")))?;
+    let mut g = RD_HOST_MOD_STATE
+        .lock()
+        .map_err(|_| ApiError::new("INTERNAL", "修饰键状态锁"))?;
+    if down {
+        *g |= bit;
+    } else {
+        *g &= !bit;
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+fn unicode_to_enigo_key(ch: char) -> Option<Key> {
+    match ch {
+        'a' | 'A' => Some(Key::A),
+        'b' | 'B' => Some(Key::B),
+        'c' | 'C' => Some(Key::C),
+        'd' | 'D' => Some(Key::D),
+        'e' | 'E' => Some(Key::E),
+        'f' | 'F' => Some(Key::F),
+        'g' | 'G' => Some(Key::G),
+        'h' | 'H' => Some(Key::H),
+        'i' | 'I' => Some(Key::I),
+        'j' | 'J' => Some(Key::J),
+        'k' | 'K' => Some(Key::K),
+        'l' | 'L' => Some(Key::L),
+        'm' | 'M' => Some(Key::M),
+        'n' | 'N' => Some(Key::N),
+        'o' | 'O' => Some(Key::O),
+        'p' | 'P' => Some(Key::P),
+        'q' | 'Q' => Some(Key::Q),
+        'r' | 'R' => Some(Key::R),
+        's' | 'S' => Some(Key::S),
+        't' | 'T' => Some(Key::T),
+        'u' | 'U' => Some(Key::U),
+        'v' | 'V' => Some(Key::V),
+        'w' | 'W' => Some(Key::W),
+        'x' | 'X' => Some(Key::X),
+        'y' | 'Y' => Some(Key::Y),
+        'z' | 'Z' => Some(Key::Z),
+        '0' => Some(Key::Num0),
+        '1' => Some(Key::Num1),
+        '2' => Some(Key::Num2),
+        '3' => Some(Key::Num3),
+        '4' => Some(Key::Num4),
+        '5' => Some(Key::Num5),
+        '6' => Some(Key::Num6),
+        '7' => Some(Key::Num7),
+        '8' => Some(Key::Num8),
+        '9' => Some(Key::Num9),
+        _ => None,
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn unicode_to_enigo_key(ch: char) -> Option<Key> {
+    if ch.is_ascii() && !ch.is_control() {
+        Some(Key::Unicode(ch))
+    } else {
+        None
+    }
+}
+
 fn apply_pointer(
     enigo: &mut Enigo,
     kind: u8,
@@ -440,11 +579,13 @@ fn apply_pointer(
     y: f64,
     button: i32,
     delta: f64,
+    modifiers: i32,
     fw: f64,
     fh: f64,
     sw: i32,
     sh: i32,
 ) -> Result<(), ApiError> {
+    sync_modifiers_from_mask(enigo, modifiers)?;
     let (mx, my) = map_pointer_to_screen(x, y, fw, fh, sw, sh);
     enigo
         .move_mouse(mx, my, Coordinate::Abs)
@@ -500,22 +641,43 @@ fn flutter_key_to_enigo(key_code: i32) -> Option<Key> {
     })
 }
 
-fn apply_key(enigo: &mut Enigo, key_code: i32, down: bool, _modifiers: i32) -> Result<(), ApiError> {
+fn apply_key(enigo: &mut Enigo, key_code: i32, down: bool, modifiers: i32) -> Result<(), ApiError> {
     let dir = if down {
         Direction::Press
     } else {
         Direction::Release
     };
+
+    if matches!(
+        key_code,
+        RD_KEY_CONTROL | RD_KEY_SHIFT | RD_KEY_ALT | RD_KEY_META
+    ) {
+        return apply_modifier_key_event(enigo, key_code, down);
+    }
+
+    sync_modifiers_from_mask(enigo, modifiers)?;
+
     if let Some(k) = flutter_key_to_enigo(key_code) {
         enigo
             .key(k, dir)
             .map_err(|e| ApiError::new("RD_INPUT", format!("按键: {e}")))?;
         return Ok(());
     }
+
     if key_code > 0 && key_code < 0x110000 {
         if let Some(ch) = char::from_u32(key_code as u32) {
             if !ch.is_control() || ch == '\n' || ch == '\r' || ch == '\t' {
-                if down {
+                if modifiers != 0 {
+                    if let Some(k) = unicode_to_enigo_key(ch) {
+                        enigo
+                            .key(k, dir)
+                            .map_err(|e| ApiError::new("RD_INPUT", format!("组合键: {e}")))?;
+                    } else {
+                        enigo
+                            .key(Key::Unicode(ch), dir)
+                            .map_err(|e| ApiError::new("RD_INPUT", format!("组合键: {e}")))?;
+                    }
+                } else if down {
                     let s = ch.to_string();
                     enigo
                         .text(&s)
@@ -545,7 +707,14 @@ fn dispatch_client_payload(
             let y = f64::from_le_bytes(buf[10..18].try_into().unwrap());
             let button = i32::from_le_bytes(buf[18..22].try_into().unwrap());
             let delta = f64::from_le_bytes(buf[22..30].try_into().unwrap());
-            apply_pointer(enigo, kind, x, y, button, delta, fw, fh, sw, sh)
+            let modifiers = if buf.len() >= 34 {
+                i32::from_le_bytes(buf[30..34].try_into().unwrap())
+            } else {
+                0
+            };
+            apply_pointer(
+                enigo, kind, x, y, button, delta, modifiers, fw, fh, sw, sh,
+            )
         }
         MSG_KEY if buf.len() >= 10 => {
             let key_code = i32::from_le_bytes(buf[1..5].try_into().unwrap());
@@ -677,6 +846,10 @@ fn run_host_session(mut stream: TcpStream, expected_token: String) -> Result<(),
             None
         }
     };
+
+    if let Ok(mut g) = RD_HOST_MOD_STATE.lock() {
+        *g = 0;
+    }
 
     let mut inbound_acc: Vec<u8> = Vec::new();
 

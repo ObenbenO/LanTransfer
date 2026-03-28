@@ -1277,12 +1277,14 @@ impl SseDecode for crate::api::types::RemotePointerEventDto {
         let mut var_y = <f64>::sse_decode(deserializer);
         let mut var_button = <i32>::sse_decode(deserializer);
         let mut var_delta = <f64>::sse_decode(deserializer);
+        let mut var_modifiers = <i32>::sse_decode(deserializer);
         return crate::api::types::RemotePointerEventDto {
             kind: var_kind,
             x: var_x,
             y: var_y,
             button: var_button,
             delta: var_delta,
+            modifiers: var_modifiers,
         };
     }
 }
@@ -1579,6 +1581,7 @@ impl flutter_rust_bridge::IntoDart for crate::api::types::RemotePointerEventDto 
             self.y.into_into_dart().into_dart(),
             self.button.into_into_dart().into_dart(),
             self.delta.into_into_dart().into_dart(),
+            self.modifiers.into_into_dart().into_dart(),
         ]
         .into_dart()
     }
@@ -1846,6 +1849,7 @@ impl SseEncode for crate::api::types::RemotePointerEventDto {
         <f64>::sse_encode(self.y, serializer);
         <i32>::sse_encode(self.button, serializer);
         <f64>::sse_encode(self.delta, serializer);
+        <i32>::sse_encode(self.modifiers, serializer);
     }
 }
 

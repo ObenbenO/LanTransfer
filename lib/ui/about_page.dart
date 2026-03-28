@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-/// 与 `pubspec.yaml` 中 version 保持同步，便于会议排障。
+/// 与 `pubspec.yaml` 中 version 保持同步。
 class AboutPage extends StatelessWidget {
   const AboutPage({super.key});
 
@@ -22,18 +22,15 @@ class AboutPage extends StatelessWidget {
           Text('X传输工具', style: Theme.of(context).textTheme.headlineSmall),
           const SizedBox(height: 8),
           SelectableText(
-            '版本 $appVersion\n'
-            'Flutter + Rust（flutter_rust_bridge）\n'
-            '局域网发现：Bonsoir（_localdesk._udp）',
+            '版本 $appVersion',
             style: Theme.of(context).textTheme.bodyMedium,
           ),
           const SizedBox(height: 24),
-          Text('说明', style: Theme.of(context).textTheme.titleSmall),
+          Text('这是做什么的？', style: Theme.of(context).textTheme.titleSmall),
           const SizedBox(height: 8),
           const Text(
-            '本应用用于会议场景下的文件互传与后续远程桌面扩展。'
-            '若无法发现其他电脑，请检查是否在同一网段、防火墙是否放行 mDNS，'
-            '并可在设置中开启「单机调试」做环回联调。',
+            '在会议室或同一 Wi‑Fi 下，方便地把文件发给同事，也可以在对方允许时远程查看或操作对方电脑（远程协助）。'
+            '更详细的步骤见应用附带的《使用说明》。',
           ),
         ],
       ),

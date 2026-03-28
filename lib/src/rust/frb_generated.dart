@@ -1184,14 +1184,15 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   RemotePointerEventDto dco_decode_remote_pointer_event_dto(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     final arr = raw as List<dynamic>;
-    if (arr.length != 5)
-      throw Exception('unexpected arr length: expect 5 but see ${arr.length}');
+    if (arr.length != 6)
+      throw Exception('unexpected arr length: expect 6 but see ${arr.length}');
     return RemotePointerEventDto(
       kind: dco_decode_String(arr[0]),
       x: dco_decode_f_64(arr[1]),
       y: dco_decode_f_64(arr[2]),
       button: dco_decode_i_32(arr[3]),
       delta: dco_decode_f_64(arr[4]),
+      modifiers: dco_decode_i_32(arr[5]),
     );
   }
 
@@ -1537,12 +1538,14 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     var var_y = sse_decode_f_64(deserializer);
     var var_button = sse_decode_i_32(deserializer);
     var var_delta = sse_decode_f_64(deserializer);
+    var var_modifiers = sse_decode_i_32(deserializer);
     return RemotePointerEventDto(
       kind: var_kind,
       x: var_x,
       y: var_y,
       button: var_button,
       delta: var_delta,
+      modifiers: var_modifiers,
     );
   }
 
@@ -1868,6 +1871,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     sse_encode_f_64(self.y, serializer);
     sse_encode_i_32(self.button, serializer);
     sse_encode_f_64(self.delta, serializer);
+    sse_encode_i_32(self.modifiers, serializer);
   }
 
   @protected

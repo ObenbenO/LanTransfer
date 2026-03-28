@@ -165,6 +165,8 @@ class RemotePointerEventDto {
   final double y;
   final int button;
   final double delta;
+  /// 与 [RemoteKeyEventDto.modifiers] 一致：Shift=1, Ctrl=2, Alt=4, Meta=8。
+  final int modifiers;
 
   const RemotePointerEventDto({
     required this.kind,
@@ -172,6 +174,7 @@ class RemotePointerEventDto {
     required this.y,
     required this.button,
     required this.delta,
+    this.modifiers = 0,
   });
 
   @override
@@ -180,7 +183,8 @@ class RemotePointerEventDto {
       x.hashCode ^
       y.hashCode ^
       button.hashCode ^
-      delta.hashCode;
+      delta.hashCode ^
+      modifiers.hashCode;
 
   @override
   bool operator ==(Object other) =>
@@ -191,7 +195,8 @@ class RemotePointerEventDto {
           x == other.x &&
           y == other.y &&
           button == other.button &&
-          delta == other.delta;
+          delta == other.delta &&
+          modifiers == other.modifiers;
 }
 
 /// 发送文件请求。

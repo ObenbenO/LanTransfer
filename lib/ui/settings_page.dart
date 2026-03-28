@@ -16,9 +16,8 @@ class SettingsPage extends StatefulWidget {
 class _SettingsPageState extends State<SettingsPage> {
   final _nick = TextEditingController();
   final _tags = <TextEditingController>[];
-  final _remoteTok = TextEditingController(text: 'dev-token');
   final _store = SettingsStore();
-  bool _loopback = false;
+  bool _remoteHostEnabled = false;
   String? _receivePath;
 
   @override
@@ -37,7 +36,7 @@ class _SettingsPageState extends State<SettingsPage> {
     if (_tags.isEmpty) {
       _tags.add(TextEditingController());
     }
-    _loopback = await _store.debugLoopback;
+    _remoteHostEnabled = await _store.remoteDesktopHostEnabled;
     _receivePath = await _store.receivePath;
     setState(() {});
   }
@@ -45,7 +44,6 @@ class _SettingsPageState extends State<SettingsPage> {
   @override
   void dispose() {
     _nick.dispose();
-    _remoteTok.dispose();
     for (final c in _tags) {
       c.dispose();
     }
@@ -64,7 +62,7 @@ class _SettingsPageState extends State<SettingsPage> {
         .toList();
     await _store.saveProfile(nickname: _nick.text.trim(), tags: tags);
     await _store.saveReceivePath(_receivePath);
-    await _store.setDebugLoopback(_loopback);
+    await _store.setRemoteDesktopHostEnabled(_remoteHostEnabled);
     if (!mounted) return;
     await context.read<AppSession>().reloadAfterSettingsSave();
     if (!mounted) return;
@@ -90,7 +88,7 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
           const SizedBox(height: 16),
           Text(
-            '标签（会场 / 片区 / …）',
+            '分组标签（如会场、区域）',
             style: Theme.of(context).textTheme.titleSmall,
           ),
           const SizedBox(height: 8),
@@ -135,7 +133,7 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
           const Divider(height: 32),
           ListTile(
-            title: const Text('默认接收目录'),
+            title: const Text('接收文件保存位置'),
             subtitle: Text(_receivePath ?? '未选择'),
             trailing: FilledButton(
               onPressed: _pickDir,
@@ -145,101 +143,49 @@ class _SettingsPageState extends State<SettingsPage> {
           Padding(
             padding: const EdgeInsets.only(left: 4, right: 4, bottom: 8),
             child: Text(
-              '须选择已存在的文件夹；保存并应用时由 Rust 校验可写性。',
+              '请选择一个已存在的文件夹；保存时会检查是否可写入。',
               style: TextStyle(
                 fontSize: 12,
                 color: Theme.of(context).colorScheme.onSurfaceVariant,
               ),
             ),
           ),
+          const Divider(height: 24),
+          SwitchListTile(
+            title: const Text('允许其他人远程控制本电脑'),
+            subtitle: const Text(
+              '开启后，本应用启动时会自动准备好远程协助；同一局域网内的其他用户可直接连接，无需再输入密码。'
+              '关闭后，他人无法远程连接本机。',
+            ),
+            value: _remoteHostEnabled,
+            onChanged: (v) => setState(() => _remoteHostEnabled = v),
+          ),
+          ListenableBuilder(
+            listenable: context.read<AppSession>(),
+            builder: (context, _) {
+              final p = context.read<AppSession>().remoteDesktopAdvertisedPort;
+              if (p <= 0) {
+                return const SizedBox.shrink();
+              }
+              return Padding(
+                padding: const EdgeInsets.only(left: 16, right: 16, bottom: 8),
+                child: Text(
+                  '当前远程协助端口：$p',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              );
+            },
+          ),
+          const Divider(height: 24),
           ListTile(
             leading: const Icon(Icons.help_outline),
-            title: const Text('网络与权限说明'),
-            subtitle: const Text('防火墙、mDNS、接收目录常见问题'),
+            title: const Text('连接问题说明'),
+            subtitle: const Text('收不到文件、防火墙等常见情况'),
             onTap: () {
               Navigator.of(context).push(
                 MaterialPageRoute<void>(
                   builder: (_) => const TroubleshootingPage(),
                 ),
-              );
-            },
-          ),
-          SwitchListTile(
-            title: const Text('单机调试（环回对端）'),
-            subtitle: const Text('注册 127.0.0.1 对端，便于自发自收联调'),
-            value: _loopback,
-            onChanged: (v) => setState(() => _loopback = v),
-          ),
-          const Divider(height: 32),
-          Text(
-            '远程桌面 · 本机被控（占位）',
-            style: Theme.of(context).textTheme.titleSmall,
-          ),
-          const SizedBox(height: 8),
-          TextField(
-            controller: _remoteTok,
-            decoration: const InputDecoration(
-              labelText: '会话令牌（与控制端一致）',
-              border: OutlineInputBorder(),
-            ),
-          ),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              FilledButton(
-                onPressed: () async {
-                  final session = context.read<AppSession>();
-                  try {
-                    await session.startRemoteHost(
-                      token: _remoteTok.text.trim(),
-                    );
-                    if (!context.mounted) return;
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(
-                          '已启动远控宿主，广播 rport=${session.remoteDesktopAdvertisedPort}',
-                        ),
-                      ),
-                    );
-                  } catch (e) {
-                    if (!context.mounted) return;
-                    ScaffoldMessenger.of(
-                      context,
-                    ).showSnackBar(SnackBar(content: Text('启动失败: $e')));
-                  }
-                },
-                child: const Text('启动本机远控端口'),
-              ),
-              OutlinedButton(
-                onPressed: () async {
-                  final session = context.read<AppSession>();
-                  try {
-                    await session.stopRemoteHost();
-                    if (!context.mounted) return;
-                    ScaffoldMessenger.of(
-                      context,
-                    ).showSnackBar(const SnackBar(content: Text('已停止远控宿主')));
-                  } catch (e) {
-                    if (!context.mounted) return;
-                    ScaffoldMessenger.of(
-                      context,
-                    ).showSnackBar(SnackBar(content: Text('停止失败: $e')));
-                  }
-                },
-                child: const Text('停止'),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          ListenableBuilder(
-            listenable: context.read<AppSession>(),
-            builder: (context, _) {
-              final p = context.read<AppSession>().remoteDesktopAdvertisedPort;
-              return Text(
-                '当前 Bonsoir 中的 rport: $p',
-                style: Theme.of(context).textTheme.bodySmall,
               );
             },
           ),

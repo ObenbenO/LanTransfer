@@ -72,6 +72,8 @@ pub struct RemotePointerEventDto {
     pub y: f64,
     pub button: i32,
     pub delta: f64,
+    /// 与 [RemoteKeyEventDto::modifiers] 相同位约定：Shift=1, Ctrl=2, Alt=4, Meta/Win=8。
+    pub modifiers: i32,
 }
 
 #[derive(Clone, Debug)]

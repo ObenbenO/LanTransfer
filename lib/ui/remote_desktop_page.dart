@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
+import '../app/app_session.dart';
 import '../models/discovered_peer.dart';
 import '../src/rust/api/remote_client.dart';
 import '../src/rust/api/types.dart';
@@ -157,6 +158,17 @@ class RdpViewController extends ChangeNotifier {
   }
 }
 
+/// 与 Rust `MOD_*` 一致：Shift=1, Ctrl=2, Alt=4, Meta=8。
+int _rdModifierMask() {
+  final m = HardwareKeyboard.instance;
+  var mask = 0;
+  if (m.isShiftPressed) mask |= 1;
+  if (m.isControlPressed) mask |= 2;
+  if (m.isAltPressed) mask |= 4;
+  if (m.isMetaPressed) mask |= 8;
+  return mask;
+}
+
 (int code, bool down)? _encodeRustKey(KeyEvent e) {
   if (e is! KeyDownEvent && e is! KeyUpEvent && e is! KeyRepeatEvent) {
     return null;
@@ -192,13 +204,29 @@ class RdpViewController extends ChangeNotifier {
     special = -111;
   } else if (k == LogicalKeyboardKey.pageDown) {
     special = -112;
+  } else if (k == LogicalKeyboardKey.controlLeft ||
+      k == LogicalKeyboardKey.controlRight) {
+    special = -113;
+  } else if (k == LogicalKeyboardKey.shiftLeft ||
+      k == LogicalKeyboardKey.shiftRight) {
+    special = -114;
+  } else if (k == LogicalKeyboardKey.altLeft ||
+      k == LogicalKeyboardKey.altRight) {
+    special = -115;
+  } else if (k == LogicalKeyboardKey.metaLeft ||
+      k == LogicalKeyboardKey.metaRight) {
+    special = -116;
   }
 
   if (special != null) {
     return (special, down);
   }
 
-  if (down && e is KeyDownEvent) {
+  if (e is KeyRepeatEvent) {
+    return null;
+  }
+
+  if (e is KeyDownEvent || e is KeyUpEvent) {
     var text = e.character;
     if (text == null || text.isEmpty) {
       final lab = e.logicalKey.keyLabel;
@@ -209,7 +237,7 @@ class RdpViewController extends ChangeNotifier {
     if (text != null && text.isNotEmpty) {
       final cp = text.runes.first;
       if (cp > 0 && cp < 0x110000) {
-        return (cp, true);
+        return (cp, down);
       }
     }
   }
@@ -230,7 +258,6 @@ class RemoteDesktopPage extends StatefulWidget {
 class _RemoteDesktopPageState extends State<RemoteDesktopPage> {
   late final TextEditingController _host;
   late final TextEditingController _port;
-  late final TextEditingController _token;
   bool _busy = false;
   bool _connected = false;
   String? _err;
@@ -246,7 +273,6 @@ class _RemoteDesktopPageState extends State<RemoteDesktopPage> {
           ? '${p.remoteDesktopPort}'
           : '0',
     );
-    _token = TextEditingController(text: 'dev-token');
   }
 
   @override
@@ -254,7 +280,6 @@ class _RemoteDesktopPageState extends State<RemoteDesktopPage> {
     _rdp?.disposeController();
     _host.dispose();
     _port.dispose();
-    _token.dispose();
     super.dispose();
   }
 
@@ -268,7 +293,7 @@ class _RemoteDesktopPageState extends State<RemoteDesktopPage> {
       await remoteClientConnect(
         host: _host.text.trim(),
         port: port,
-        sessionToken: _token.text.trim(),
+        sessionToken: AppSession.kLanRemoteSessionToken,
       );
       _rdp?.disposeController();
       _rdp = RdpViewController()..startPolling();
@@ -317,7 +342,7 @@ class _RemoteDesktopPageState extends State<RemoteDesktopPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(_connected ? '远程桌面 · 已连接' : '远程桌面'),
+        title: Text(_connected ? '远程协助 · 已连接' : '远程协助'),
         actions: [
           if (_connected)
             IconButton(
@@ -338,7 +363,8 @@ class _RemoteDesktopPageState extends State<RemoteDesktopPage> {
         TextField(
           controller: _host,
           decoration: const InputDecoration(
-            labelText: '主机',
+            labelText: '对方电脑地址',
+            hintText: '一般从列表进入会自动填好',
             border: OutlineInputBorder(),
           ),
         ),
@@ -346,18 +372,10 @@ class _RemoteDesktopPageState extends State<RemoteDesktopPage> {
         TextField(
           controller: _port,
           decoration: const InputDecoration(
-            labelText: '远控端口（被控端设置里启动宿主后广播的 rport）',
+            labelText: '远程协助端口',
             border: OutlineInputBorder(),
           ),
           keyboardType: TextInputType.number,
-        ),
-        const SizedBox(height: 8),
-        TextField(
-          controller: _token,
-          decoration: const InputDecoration(
-            labelText: '会话令牌（须与被控端一致）',
-            border: OutlineInputBorder(),
-          ),
         ),
         const SizedBox(height: 12),
         FilledButton(
@@ -377,12 +395,10 @@ class _RemoteDesktopPageState extends State<RemoteDesktopPage> {
             style: TextStyle(color: Theme.of(context).colorScheme.error),
           ),
         ],
-        const SizedBox(height: 24),
-        Text('提示', style: Theme.of(context).textTheme.titleSmall),
-        const SizedBox(height: 6),
+        const SizedBox(height: 16),
         Text(
-          '被控端请先在「设置」中启动远程桌面宿主，令牌与端口需与对端填写一致；'
-          '画面约每秒 8 帧，局域网使用。鼠标与键盘将发送到被控机（需系统允许模拟输入）。',
+          '对方需在「设置」中开启「允许其他人远程控制本电脑」。'
+          '连接后，您的鼠标和键盘会作用在对方电脑上，请仅在取得对方同意时使用。',
           style: Theme.of(context).textTheme.bodySmall,
         ),
       ],
@@ -425,7 +441,7 @@ class _RemoteDesktopPageState extends State<RemoteDesktopPage> {
                       size: 18,
                       color: Theme.of(context).colorScheme.primary,
                     ),
-                    label: const Text('XRDS 会话'),
+                    label: const Text('远程协助'),
                   ),
                 ],
               ),
@@ -576,6 +592,7 @@ class _RdpLiveViewState extends State<_RdpLiveView> {
           y: y,
           button: button,
           delta: delta,
+          modifiers: _rdModifierMask(),
         ),
       );
       if (kDebugMode) {
@@ -598,8 +615,9 @@ class _RdpLiveViewState extends State<_RdpLiveView> {
     if (enc == null) {
       return KeyEventResult.ignored;
     }
-    // 可打印字符（含英文）由隐藏 TextField + IME 走 _onImeSinkChanged，中文才能上屏。
-    if (enc.$1 >= 0) {
+    final mods = _rdModifierMask();
+    // 无修饰键的可打印字符由隐藏 TextField + IME 走 _onImeSinkChanged（中文上屏）。
+    if (enc.$1 >= 0 && mods == 0) {
       return KeyEventResult.ignored;
     }
     try {
@@ -607,7 +625,7 @@ class _RdpLiveViewState extends State<_RdpLiveView> {
         event: RemoteKeyEventDto(
           keyCode: enc.$1,
           down: enc.$2,
-          modifiers: 0,
+          modifiers: mods,
         ),
       );
       if (kDebugMode) {

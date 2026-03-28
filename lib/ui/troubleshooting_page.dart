@@ -5,7 +5,7 @@ import 'package:provider/provider.dart';
 import '../app/app_session.dart';
 import '../services/network_diagnostics.dart';
 
-/// 清单 4.5：常见错误与权限说明。
+/// 面向普通用户的连接与权限说明。
 class TroubleshootingPage extends StatelessWidget {
   const TroubleshootingPage({super.key});
 
@@ -13,7 +13,7 @@ class TroubleshootingPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = Theme.of(context).textTheme;
     return Scaffold(
-      appBar: AppBar(title: const Text('网络与权限')),
+      appBar: AppBar(title: const Text('连接问题说明')),
       body: ListView(
         padding: const EdgeInsets.all(20),
         children: [
@@ -23,11 +23,10 @@ class TroubleshootingPage extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Text('客观判定（推荐）', style: t.titleMedium),
+                  Text('需要技术支持时', style: t.titleMedium),
                   const SizedBox(height: 8),
                   Text(
-                    '没有单一命令能自动给出 100% 根因；最可靠的是：两台各复制一份下方「诊断报告」，'
-                    '再用 Wireshark 在双方 Wi‑Fi 网卡上过滤 udp.port == 45678，对照 OUT/IN 是否出现。',
+                    '请在本页底部复制「简要诊断信息」，发给技术支持或同事对照。',
                     style: t.bodyMedium,
                   ),
                   const SizedBox(height: 12),
@@ -37,57 +36,42 @@ class TroubleshootingPage extends StatelessWidget {
                       final text = collectNetworkDiagnostics(session);
                       Clipboard.setData(ClipboardData(text: text));
                       ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('已复制诊断报告到剪贴板')),
+                        const SnackBar(content: Text('已复制到剪贴板')),
                       );
                     },
                     icon: const Icon(Icons.copy_all_outlined),
-                    label: const Text('复制网络诊断报告'),
+                    label: const Text('复制简要诊断信息'),
                   ),
                 ],
               ),
             ),
           ),
           const SizedBox(height: 24),
-          Text('接收目录', style: t.titleMedium),
+          Text('收不到别人发的文件', style: t.titleMedium),
           const SizedBox(height: 8),
           Text(
-            '在设置中选择「已存在」的文件夹；保存时会由 Rust 校验路径。'
-            '若提示目录不存在或无权限，请更换路径或以管理员身份运行（视系统而定）。',
+            '• 请确认双方连的是同一个 Wi‑Fi（或同一有线局域网）。\n'
+            '• 在「设置」里选好「接收文件保存位置」，并点「保存并应用」。\n'
+            '• Windows 若弹出防火墙询问，请选择「允许」。\n'
+            '• 若仍不行，可把网络设为「专用网络」后再试。',
             style: t.bodyMedium,
           ),
           const SizedBox(height: 24),
-          Text('局域网发现（Bonsoir / mDNS）', style: t.titleMedium),
+          Text('列表里看不到其他电脑', style: t.titleMedium),
           const SizedBox(height: 8),
           Text(
-            '• 确保各电脑在同一局域网，且未开启 AP「客户端隔离」或访客 Wi‑Fi。\n'
-            '• 本应用同时使用 Bonsoir（mDNS）与 UDP 广播（端口 45678，含各网卡的子网广播地址）。\n'
-            '• Windows：若 Wi‑Fi 被设为「公用网络」，此前仅「专用/域」的防火墙规则不会生效；'
-            '请在启动时的防火墙向导中再次「授权并添加规则」（脚本会将规则设为任意配置文件），'
-            '或在「设置 → 网络和 Internet」中将当前网络改为「专用网络」。\n'
-            '• 首次监听时若弹出「是否允许访问网络」，请选择允许。\n'
-            '• 若仍被拦，在防火墙中为实际运行的 **exe** 放行入站 TCP/UDP（含动态文件端口与 UDP 45678）。\n'
-            '• 若列表始终为空，可先在设置中开启「单机调试（环回对端）」验证发送流程。\n'
-            '• Python 探针能互相收到，但本程序不行时：请看首页「设备 ID」。'
-            '若两台电脑的设备 ID 完全一致，说明共用了同一份 Rust 缓存（如复制虚拟机、同步了 AppData），'
-            '程序会把对方误判为自己并丢弃；请在两台机器上分别删除应用数据目录中的 xtransfer_device_id 文件后重启（路径因安装而异，一般在「应用支持 / Roaming」下与包名相关的文件夹内）。',
+            '• 对方也需要打开本应用。\n'
+            '• 部分路由器会开启「访客网络」或「设备隔离」，会导致互相看不到，请换到普通局域网或关闭该功能。\n'
+            '• 若两台电脑曾复制过同一台机器的系统镜像，可能出现设备识别冲突，需分别清理本应用数据目录中的设备标识文件后重启（可向技术支持索要路径）。',
             style: t.bodyMedium,
           ),
           const SizedBox(height: 24),
-          Text('文件发送失败', style: t.titleMedium),
+          Text('远程协助连不上', style: t.titleMedium),
           const SizedBox(height: 8),
           Text(
-            '发送前对端须已启动本应用并完成文件服务监听；'
-            '对端「文件端口」须与 Bonsoir 广播一致。'
-            '若提示 TCP 连接失败，请确认防火墙未拦截该端口。',
-            style: t.bodyMedium,
-          ),
-          const SizedBox(height: 24),
-          Text('远程桌面', style: t.titleMedium),
-          const SizedBox(height: 8),
-          Text(
-            '被控端需先在本机启动 Rust 侧 remote_host（后续可在界面中提供入口）；'
-            '控制端填写的端口与令牌须与被控端一致。'
-            '画面与键鼠需系统辅助功能 / 屏幕录制权限时，请按操作系统提示授权。',
+            '• 被协助的一方需要在「设置」中打开「允许其他人远程控制本电脑」。\n'
+            '• 协助方在列表里点显示器图标；若该按钮为灰色，说明对方未开启远程协助。\n'
+            '• 操作系统若询问屏幕录制、辅助功能等权限，请按提示允许。',
             style: t.bodyMedium,
           ),
         ],

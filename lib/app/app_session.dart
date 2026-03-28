@@ -41,7 +41,12 @@ class AppSession extends ChangeNotifier {
   String nickname = '';
   List<String> tags = [];
   String? receivePath;
-  bool debugLoopback = false;
+
+  /// 与 [SettingsStore.remoteDesktopHostEnabled] 同步：是否在启动本应用时开启远程协助（被控）。
+  bool remoteDesktopHostEnabled = false;
+
+  /// 局域网远程协助会话令牌（控制端与被控端一致即可，无需用户输入）。
+  static const String kLanRemoteSessionToken = 'xtransfer-lan';
 
   int? fileListenPort;
   int remoteDesktopAdvertisedPort = 0;
@@ -92,7 +97,7 @@ class AppSession extends ChangeNotifier {
     nickname = await _settings.nickname;
     tags = await _settings.tags;
     receivePath = await _settings.receivePath;
-    debugLoopback = await _settings.debugLoopback;
+    remoteDesktopHostEnabled = await _settings.remoteDesktopHostEnabled;
     notifyListeners();
 
     try {
@@ -114,8 +119,12 @@ class AppSession extends ChangeNotifier {
     await _syncRustProfileAndReceiveDir();
     await _startFileServiceAndDiscovery();
     _scheduleDeferredLanRefresh();
-    if (debugLoopback) {
-      _registerLoopbackSelfPeer();
+    if (remoteDesktopHostEnabled) {
+      try {
+        await startRemoteHost(token: kLanRemoteSessionToken);
+      } catch (e) {
+        _setErr('远程协助启动失败: ${_fmtErr(e)}');
+      }
     }
 
     _pollTimer?.cancel();
@@ -132,7 +141,7 @@ class AppSession extends ChangeNotifier {
     nickname = await _settings.nickname;
     tags = await _settings.tags;
     receivePath = await _settings.receivePath;
-    debugLoopback = await _settings.debugLoopback;
+    remoteDesktopHostEnabled = await _settings.remoteDesktopHostEnabled;
     await _syncRustProfileAndReceiveDir();
     // 先 UDP 广播：避免 Bonsoir 抛错时从未执行 _restartLanBroadcast（表现为完全不发 45678）。
     await _restartLanBroadcast();
@@ -142,10 +151,16 @@ class AppSession extends ChangeNotifier {
     } catch (e) {
       _setErr('Bonsoir 刷新失败（UDP 发现仍可用）: ${_fmtErr(e)}');
     }
-    if (debugLoopback) {
-      _registerLoopbackSelfPeer();
+    if (remoteDesktopHostEnabled) {
+      try {
+        await _ensureRemoteHostRunning();
+      } catch (e) {
+        _setErr('远程协助启动失败: ${_fmtErr(e)}');
+      }
     } else {
-      _unregisterLoopbackPeer();
+      try {
+        await stopRemoteHost();
+      } catch (_) {}
     }
     notifyListeners();
   }
@@ -381,31 +396,16 @@ class AppSession extends ChangeNotifier {
     }
   }
 
-  void _registerLoopbackSelfPeer() {
-    final port = fileListenPort;
-    if (port == null || localDeviceId == null) return;
-    final fakeId = 'loopback-self';
+  Future<void> _ensureRemoteHostRunning() async {
     try {
-      registerDiscoveredPeer(
-        peer: PeerInfoDto(
-          peerId: fakeId,
-          instanceId: 'loopback',
-          nickname: '本机(${nickname.isEmpty ? "我" : nickname})',
-          tags: tags,
-          host: '127.0.0.1',
-          fileServicePort: port,
-          remoteDesktopPort: remoteDesktopAdvertisedPort,
-        ),
-      );
+      await startRemoteHost(token: kLanRemoteSessionToken);
     } catch (e) {
-      _setErr('环回 peer: ${_fmtErr(e)}');
+      final msg = _fmtErr(e);
+      if (msg.contains('HOST_RUNNING') || msg.contains('已在运行')) {
+        return;
+      }
+      rethrow;
     }
-  }
-
-  void _unregisterLoopbackPeer() {
-    try {
-      unregisterPeer(peerId: 'loopback-self');
-    } catch (_) {}
   }
 
   void _pollRustInbound() {

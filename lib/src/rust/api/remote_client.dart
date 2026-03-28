@@ -20,7 +20,6 @@ Future<void> remoteClientConnect({
 Future<void> remoteClientDisconnect() =>
     RustLib.instance.api.crateApiRemoteClientRemoteClientDisconnect();
 
-/// 取一帧 RGBA；当前占位返回 `None`（接入解码与环形缓冲后再实现）。
 VideoFrameDto? remoteClientTryTakeRgbaFrame() =>
     RustLib.instance.api.crateApiRemoteClientRemoteClientTryTakeRgbaFrame();
 

@@ -5,7 +5,6 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../app/app_session.dart';
-import '../services/lan_broadcast.dart';
 import '../files/export_text.dart';
 import '../models/discovered_peer.dart';
 import '../models/user_tree.dart';
@@ -171,14 +170,14 @@ class HomePage extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            '${t.phase} · ${_shortTransferId(t.transferId)}',
+            '传输 · ${_shortTransferId(t.transferId)}',
             style: Theme.of(context).textTheme.bodySmall,
           ),
           if (total > 0) ...[
             const SizedBox(height: 4),
             LinearProgressIndicator(value: ratio),
             Text(
-              '$sent / $total 字节',
+              '已发送 $sent / $total',
               style: Theme.of(context).textTheme.bodySmall,
             ),
           ] else
@@ -213,6 +212,7 @@ class HomePage extends StatelessWidget {
   Widget _buildNode(BuildContext context, AppSession session, UserTreeNode n) {
     switch (n) {
       case UserTreeLeaf(:final peer):
+        final remoteOk = peer.remoteDesktopPort > 0;
         return Padding(
           padding: const EdgeInsets.only(bottom: 6),
           child: UserDropTile(
@@ -220,18 +220,29 @@ class HomePage extends StatelessWidget {
             onDrop: (d) => _onDropUser(context, session, peer, d),
             title: Text(peer.nickname),
             subtitle: Text(
-              '${peer.host} · 文件端口 ${peer.fileServicePort} · 拖放文件到此行发送',
+              remoteOk
+                  ? '${peer.host} · 拖放文件到此处发送'
+                  : '${peer.host} · 拖放发文件 · 对方未开启远程协助',
             ),
             trailing: IconButton(
-              icon: const Icon(Icons.monitor),
-              tooltip: '远程桌面',
-              onPressed: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => RemoteDesktopPage(prefill: peer),
-                  ),
-                );
-              },
+              icon: Icon(
+                Icons.monitor,
+                color: remoteOk
+                    ? null
+                    : Theme.of(context).colorScheme.onSurface.withValues(
+                          alpha: 0.38,
+                        ),
+              ),
+              tooltip: remoteOk ? '远程协助' : '对方未开启远程协助',
+              onPressed: remoteOk
+                  ? () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => RemoteDesktopPage(prefill: peer),
+                        ),
+                      );
+                    }
+                  : null,
             ),
           ),
         );
@@ -248,7 +259,7 @@ class HomePage extends StatelessWidget {
             child: ExpansionTile(
               tilePadding: EdgeInsets.zero,
               title: Text(label),
-              subtitle: const Text('不可作为发送目标 — 请展开后拖到用户'),
+              subtitle: const Text('请展开后，把文件拖到具体用户上'),
               children: children
                   .map((c) => _buildNode(context, session, c))
                   .toList(),
@@ -273,24 +284,9 @@ class HomePage extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('个人信息', style: Theme.of(context).textTheme.titleSmall),
+                Text('我的信息', style: Theme.of(context).textTheme.titleSmall),
                 const SizedBox(height: 6),
                 SelectableText(_profileLine(session)),
-                if (session.localDeviceId != null)
-                  Text(
-                    '设备 ID: ${session.localDeviceId}',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                if (session.fileListenPort != null)
-                  Text(
-                    '本机文件服务端口: ${session.fileListenPort}',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                if (AppSession.instanceTag.isNotEmpty)
-                  Text(
-                    '多开实例: ${AppSession.instanceTag}（Rust 缓存子目录）',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
               ],
             ),
           ),
@@ -313,7 +309,7 @@ class HomePage extends StatelessWidget {
                     ),
                   );
                 },
-                child: const Text('查看说明'),
+                child: const Text('查看帮助'),
               ),
             ],
           ),
@@ -326,7 +322,7 @@ class HomePage extends StatelessWidget {
             padding: const EdgeInsets.all(12),
             child: recentTransfers.isEmpty
                 ? Text(
-                    '暂无（由 Rust pullTransferProgress 推送）',
+                    '暂无传输任务',
                     style: Theme.of(context).textTheme.bodySmall,
                   )
                 : Column(
@@ -348,23 +344,29 @@ class HomePage extends StatelessWidget {
         ExpansionTile(
           initiallyExpanded: true,
           title: Text('其它用户', style: Theme.of(context).textTheme.titleMedium),
-          subtitle: const Text('树形列表 · 与需求「会场→片区→用户」一致'),
+          subtitle: const Text('按标签分组；拖文件到某一用户即可发送'),
           children: [
             if (session.discoverySupported)
               ListTile(
                 dense: true,
-                title: const Text('发现通道'),
+                title: const Text('局域网发现'),
                 subtitle: Text(
-                  'Bonsoir (mDNS) + 局域网 UDP 广播端口 ${LanBroadcastController.kPort}\n'
-                  '${session.lanBroadcastActive ? "广播发现：已启用" : "广播发现：未启用（同机多开时端口可能冲突）"}',
+                  session.lanBroadcastActive
+                      ? '正在尝试发现同一网络中的其他电脑。'
+                      : '当前未能使用辅助发现（例如端口被占用），若列表为空请检查是否在同一 Wi‑Fi。',
                 ),
               )
             else
-              const ListTile(title: Text('当前平台未发现服务，列表仅含已注入对端')),
+              const ListTile(
+                title: Text('当前设备'),
+                subtitle: Text('此平台不展示自动发现列表。'),
+              ),
             if (forest.isEmpty)
               const ListTile(
                 title: Text('暂无其他用户'),
-                subtitle: Text('请检查 Bonsoir / 防火墙，或开启设置里的「单机调试」'),
+                subtitle: Text(
+                  '请确认对方已打开本应用，且双方在同一网络；必要时在系统防火墙中允许本应用联网。',
+                ),
               )
             else
               Padding(
@@ -449,7 +451,7 @@ class HomePage extends StatelessWidget {
             },
             itemBuilder: (context) => const [
               PopupMenuItem(value: 'settings', child: Text('设置')),
-              PopupMenuItem(value: 'help', child: Text('网络与权限说明')),
+              PopupMenuItem(value: 'help', child: Text('连接问题说明')),
               PopupMenuItem(value: 'about', child: Text('关于')),
             ],
           ),
@@ -459,7 +461,7 @@ class HomePage extends StatelessWidget {
         enable: _dropEnabled,
         onDragDone: (_) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('请将文件拖到「具体用户」行上；拖到标签上会提示不可发送')),
+            const SnackBar(content: Text('请把文件拖到某位用户那一行上发送')),
           );
         },
         child: body,
