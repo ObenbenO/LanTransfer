@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use uuid::Uuid;
 
 use crate::app_state::{validate_receive_dir, with_state, with_state_mut, AppState};
+use crate::file_transfer::sync_file_receive_dir_cache;
 use super::types::{ApiError, LocalProfileDto};
 
 #[flutter_rust_bridge::frb(init)]
@@ -96,9 +97,11 @@ pub fn set_default_receive_path(path: String) -> Result<(), ApiError> {
         if !s.initialized {
             return Err(ApiError::new("NOT_INITIALIZED", "请先完成 Rust 初始化"));
         }
-        s.receive_path = Some(pb);
+        s.receive_path = Some(pb.clone());
         Ok(())
-    })
+    })?;
+    sync_file_receive_dir_cache(Some(pb));
+    Ok(())
 }
 
 #[flutter_rust_bridge::frb(sync)]
