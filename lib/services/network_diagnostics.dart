@@ -5,7 +5,7 @@ import '../app/app_session.dart';
 /// 可复制快照，供技术支持或双方对照。
 String collectNetworkDiagnostics(AppSession session) {
   final buf = StringBuffer();
-  buf.writeln('=== X传输 简要诊断 ${DateTime.now().toIso8601String()} ===');
+  buf.writeln('=== 内网传输工具 简要诊断 ${DateTime.now().toIso8601String()} ===');
   buf.writeln('kIsWeb: $kIsWeb');
   buf.writeln('defaultTargetPlatform: $defaultTargetPlatform');
   buf.writeln('discoverySupported: ${session.discoverySupported}');

@@ -3,12 +3,14 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:window_manager/window_manager.dart';
 
 import '../app/app_session.dart';
 import '../files/export_text.dart';
 import '../models/discovered_peer.dart';
 import '../models/user_tree.dart';
 import '../utils/cartoon_file_icon.dart';
+import '../utils/desktop_chrome.dart';
 import '../src/rust/api/types.dart';
 import 'about_page.dart';
 import 'remote_desktop_page.dart';
@@ -725,6 +727,88 @@ class HomePage extends StatelessWidget {
     }
   }
 
+  void _handleHomeMenuSelection(BuildContext context, String v) {
+    switch (v) {
+      case 'settings':
+        Navigator.of(context).push(
+          MaterialPageRoute<void>(builder: (_) => const SettingsPage()),
+        );
+      case 'help':
+        Navigator.of(context).push(
+          MaterialPageRoute<void>(builder: (_) => const TroubleshootingPage()),
+        );
+      case 'about':
+        Navigator.of(context).push(
+          MaterialPageRoute<void>(builder: (_) => const AboutPage()),
+        );
+    }
+  }
+
+  List<PopupMenuEntry<String>> _homeMenuItems(BuildContext context) => [
+        PopupMenuItem<String>(
+          value: 'settings',
+          child: _popupMenuRow(
+            context,
+            icon: Icons.settings_outlined,
+            label: '设置',
+          ),
+        ),
+        PopupMenuItem<String>(
+          value: 'help',
+          child: _popupMenuRow(
+            context,
+            icon: Icons.help_outline_rounded,
+            label: '连接问题说明',
+          ),
+        ),
+        PopupMenuItem<String>(
+          value: 'about',
+          child: _popupMenuRow(
+            context,
+            icon: Icons.info_outline_rounded,
+            label: '关于',
+          ),
+        ),
+      ];
+
+  PreferredSizeWidget _homeAppBar(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    if (!isDesktopNative) {
+      return AppBar(
+        title: const Text('内网传输工具'),
+        actions: [
+          IconButton(
+            tooltip: '设置',
+            icon: const Icon(Icons.settings),
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute<void>(builder: (_) => const SettingsPage()),
+              );
+            },
+          ),
+          PopupMenuButton<String>(
+            onSelected: (v) => _handleHomeMenuSelection(context, v),
+            itemBuilder: _homeMenuItems,
+          ),
+        ],
+      );
+    }
+    return PreferredSize(
+      preferredSize: const Size.fromHeight(52),
+      child: _DesktopHomeTitleBar(
+        brightness: Theme.of(context).brightness,
+        backgroundColor: scheme.surfaceContainerHighest,
+        onOpenSettings: () {
+          Navigator.of(context).push(
+            MaterialPageRoute<void>(builder: (_) => const SettingsPage()),
+          );
+        },
+        onMenuSelected: (v) => _handleHomeMenuSelection(context, v),
+        menuItemBuilder: _homeMenuItems,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final session = context.watch<AppSession>();
@@ -912,68 +996,7 @@ class HomePage extends StatelessWidget {
     );
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('X传输工具'),
-        actions: [
-          IconButton(
-            tooltip: '设置',
-            icon: const Icon(Icons.settings),
-            onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute<void>(builder: (_) => const SettingsPage()),
-              );
-            },
-          ),
-          PopupMenuButton<String>(
-            onSelected: (v) {
-              switch (v) {
-                case 'settings':
-                  Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => const SettingsPage(),
-                    ),
-                  );
-                case 'help':
-                  Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => const TroubleshootingPage(),
-                    ),
-                  );
-                case 'about':
-                  Navigator.of(context).push(
-                    MaterialPageRoute<void>(builder: (_) => const AboutPage()),
-                  );
-              }
-            },
-            itemBuilder: (context) => [
-              PopupMenuItem<String>(
-                value: 'settings',
-                child: _popupMenuRow(
-                  context,
-                  icon: Icons.settings_outlined,
-                  label: '设置',
-                ),
-              ),
-              PopupMenuItem<String>(
-                value: 'help',
-                child: _popupMenuRow(
-                  context,
-                  icon: Icons.help_outline_rounded,
-                  label: '连接问题说明',
-                ),
-              ),
-              PopupMenuItem<String>(
-                value: 'about',
-                child: _popupMenuRow(
-                  context,
-                  icon: Icons.info_outline_rounded,
-                  label: '关于',
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
+      appBar: _homeAppBar(context),
       body: DropTarget(
         enable: _dropEnabled,
         onDragDone: (_) {
@@ -988,4 +1011,166 @@ class HomePage extends StatelessWidget {
 
   String _shortTransferId(String id) =>
       id.length <= 8 ? id : '${id.substring(0, 8)}…';
+}
+
+/// 桌面端隐藏系统标题栏后的自定义顶栏：图标、标题、设置、菜单与最小化/最大化/关闭。
+class _DesktopHomeTitleBar extends StatefulWidget {
+  const _DesktopHomeTitleBar({
+    required this.brightness,
+    required this.backgroundColor,
+    required this.onOpenSettings,
+    required this.onMenuSelected,
+    required this.menuItemBuilder,
+  });
+
+  final Brightness brightness;
+  final Color backgroundColor;
+  final VoidCallback onOpenSettings;
+  final void Function(String value) onMenuSelected;
+  final List<PopupMenuEntry<String>> Function(BuildContext context)
+      menuItemBuilder;
+
+  @override
+  State<_DesktopHomeTitleBar> createState() => _DesktopHomeTitleBarState();
+}
+
+class _DesktopHomeTitleBarState extends State<_DesktopHomeTitleBar>
+    with WindowListener {
+  static const double _barHeight = 52;
+
+  @override
+  void initState() {
+    windowManager.addListener(this);
+    super.initState();
+  }
+
+  @override
+  void dispose() {
+    windowManager.removeListener(this);
+    super.dispose();
+  }
+
+  @override
+  void onWindowMaximize() => setState(() {});
+
+  @override
+  void onWindowUnmaximize() => setState(() {});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final theme = Theme.of(context);
+    const double titleFontSize = 17;
+    final titleStyle = theme.textTheme.titleMedium?.copyWith(
+          fontSize: titleFontSize,
+          fontWeight: FontWeight.w600,
+          letterSpacing: 0.35,
+          height: 1.25,
+          color: scheme.onSurface,
+        ) ??
+        TextStyle(
+          fontSize: titleFontSize,
+          fontWeight: FontWeight.w600,
+          letterSpacing: 0.35,
+          height: 1.25,
+          color: scheme.onSurface,
+        );
+    const double titleBarIconSize = 30;
+    return Material(
+      color: widget.backgroundColor,
+      surfaceTintColor: Colors.transparent,
+      elevation: 0,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          border: Border(
+            bottom: BorderSide(
+              color: scheme.outlineVariant.withValues(alpha: 0.45),
+            ),
+          ),
+        ),
+        child: SizedBox(
+          height: _barHeight,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Expanded(
+                child: DragToMoveArea(
+                  child: SizedBox(
+                    height: _barHeight,
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        const SizedBox(width: 12),
+                        Icon(
+                          Icons.sync_alt_rounded,
+                          size: titleBarIconSize,
+                          color: scheme.primary,
+                          semanticLabel: '内网传输',
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            '内网传输工具',
+                            style: titleStyle,
+                            strutStyle: StrutStyle(
+                              fontSize: titleFontSize,
+                              height: 1.25,
+                              fontWeight: FontWeight.w600,
+                              leading: 0,
+                              forceStrutHeight: true,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              IconButton(
+                tooltip: '设置',
+                icon: const Icon(Icons.settings),
+                onPressed: widget.onOpenSettings,
+              ),
+              PopupMenuButton<String>(
+                onSelected: widget.onMenuSelected,
+                itemBuilder: widget.menuItemBuilder,
+              ),
+              WindowCaptionButton.minimize(
+                brightness: widget.brightness,
+                onPressed: () async {
+                  final isMinimized = await windowManager.isMinimized();
+                  if (isMinimized) {
+                    await windowManager.restore();
+                  } else {
+                    await windowManager.minimize();
+                  }
+                },
+              ),
+              FutureBuilder<bool>(
+                future: windowManager.isMaximized(),
+                builder: (context, snapshot) {
+                  if (snapshot.data == true) {
+                    return WindowCaptionButton.unmaximize(
+                      brightness: widget.brightness,
+                      onPressed: () => windowManager.unmaximize(),
+                    );
+                  }
+                  return WindowCaptionButton.maximize(
+                    brightness: widget.brightness,
+                    onPressed: () => windowManager.maximize(),
+                  );
+                },
+              ),
+              WindowCaptionButton.close(
+                brightness: widget.brightness,
+                onPressed: () => windowManager.close(),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }

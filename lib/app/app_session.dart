@@ -262,7 +262,7 @@ class AppSession extends ChangeNotifier {
       inst = 'na';
     }
     final service = BonsoirService(
-      name: nickname.isEmpty ? 'X传输用户' : nickname,
+      name: nickname.isEmpty ? '内网传输用户' : nickname,
       type: _serviceType,
       port: fileListenPort!,
       attributes: {
@@ -316,7 +316,6 @@ class AppSession extends ChangeNotifier {
         };
       },
       isSelf: (did) => did == localDeviceId,
-      onTransportWarning: _setErr,
     );
 
     var c = LanBroadcastController();

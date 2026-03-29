@@ -10,18 +10,21 @@ import 'settings_store.dart';
 
 bool _deferredThisProcess = false;
 
-const _ruleProgramIn = 'X传输-主程序-入';
+const _ruleProgramIn = '内网传输-主程序-入';
 
 Future<bool> _programFirewallRuleExists() async {
   if (!Platform.isWindows) return false;
-  final r = await Process.run('netsh', [
-    'advfirewall',
-    'firewall',
-    'show',
-    'rule',
-    'name=$_ruleProgramIn',
-  ]);
-  return r.exitCode == 0;
+  for (final name in [_ruleProgramIn, 'X传输-主程序-入']) {
+    final r = await Process.run('netsh', [
+      'advfirewall',
+      'firewall',
+      'show',
+      'rule',
+      'name=$name',
+    ]);
+    if (r.exitCode == 0) return true;
+  }
+  return false;
 }
 
 Future<void> _markOkIfRulesPresent(SettingsStore store) async {
@@ -37,7 +40,7 @@ String _buildSetupScript(String exePath) {
 \$exe = '$escaped'
 
 # 旧版规则多为 private,domain，在 Wi‑Fi 被标成「公用网络」时不生效；升级为任意配置文件。
-foreach (\$n in @("$_ruleProgramIn","X传输-主程序-出","X传输-mDNS-入","X传输-发现45678-入")) {
+foreach (\$n in @("$_ruleProgramIn","内网传输-主程序-出","内网传输-mDNS-入","内网传输-发现45678-入","X传输-主程序-入","X传输-主程序-出","X传输-mDNS-入","X传输-发现45678-入")) {
   netsh advfirewall firewall set rule name="\$n" new profile=any 2>\$null | Out-Null
 }
 
@@ -46,19 +49,19 @@ if (\$LASTEXITCODE -ne 0) {
   netsh advfirewall firewall add rule name="$_ruleProgramIn" dir=in action=allow program="\$exe" enable=yes profile=any
 }
 
-\$null = netsh advfirewall firewall show rule name="X传输-主程序-出" 2>\$null
+\$null = netsh advfirewall firewall show rule name="内网传输-主程序-出" 2>\$null
 if (\$LASTEXITCODE -ne 0) {
-  netsh advfirewall firewall add rule name="X传输-主程序-出" dir=out action=allow program="\$exe" enable=yes profile=any
+  netsh advfirewall firewall add rule name="内网传输-主程序-出" dir=out action=allow program="\$exe" enable=yes profile=any
 }
 
-\$null = netsh advfirewall firewall show rule name="X传输-mDNS-入" 2>\$null
+\$null = netsh advfirewall firewall show rule name="内网传输-mDNS-入" 2>\$null
 if (\$LASTEXITCODE -ne 0) {
-  netsh advfirewall firewall add rule name="X传输-mDNS-入" dir=in action=allow protocol=UDP localport=5353 profile=any
+  netsh advfirewall firewall add rule name="内网传输-mDNS-入" dir=in action=allow protocol=UDP localport=5353 profile=any
 }
 
-\$null = netsh advfirewall firewall show rule name="X传输-发现45678-入" 2>\$null
+\$null = netsh advfirewall firewall show rule name="内网传输-发现45678-入" 2>\$null
 if (\$LASTEXITCODE -ne 0) {
-  netsh advfirewall firewall add rule name="X传输-发现45678-入" dir=in action=allow protocol=UDP localport=45678 profile=any
+  netsh advfirewall firewall add rule name="内网传输-发现45678-入" dir=in action=allow protocol=UDP localport=45678 profile=any
 }
 ''';
 }

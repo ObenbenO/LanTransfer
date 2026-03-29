@@ -19,7 +19,7 @@ class AboutPage extends StatelessWidget {
             color: Theme.of(context).colorScheme.primary,
           ),
           const SizedBox(height: 16),
-          Text('X传输工具', style: Theme.of(context).textTheme.headlineSmall),
+          Text('内网传输工具', style: Theme.of(context).textTheme.headlineSmall),
           const SizedBox(height: 8),
           SelectableText(
             '版本 $appVersion',

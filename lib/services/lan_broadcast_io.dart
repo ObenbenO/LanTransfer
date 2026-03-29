@@ -32,8 +32,6 @@ class LanBroadcastController {
   Map<String, dynamic> Function()? _payloadBuilder;
   bool Function(String did)? _isSelf;
   void Function(DiscoveredPeer peer)? _onPeer;
-  void Function(String message)? _onTransportWarning;
-  int _allSendFailStreak = 0;
   int _zeroSendRounds = 0;
   bool _recoverInProgress = false;
 
@@ -41,13 +39,10 @@ class LanBroadcastController {
     required void Function(DiscoveredPeer peer) onPeer,
     required Map<String, dynamic> Function() payloadBuilder,
     required bool Function(String did) isSelf,
-    void Function(String message)? onTransportWarning,
   }) async {
     _onPeer = onPeer;
     _payloadBuilder = payloadBuilder;
     _isSelf = isSelf;
-    _onTransportWarning = onTransportWarning;
-    _allSendFailStreak = 0;
     _zeroSendRounds = 0;
     _recoverInProgress = false;
     final opened = await _tryOpenSocket();
@@ -243,22 +238,13 @@ class LanBroadcastController {
       if (wroteOk) okTargets++;
     }
     if (_broadcastTargets.isNotEmpty && okTargets == 0) {
-      _allSendFailStreak++;
       _zeroSendRounds++;
-      if (_allSendFailStreak >= 3) {
-        _onTransportWarning?.call(
-          '局域网发现 UDP 已连续多轮未能发出。若日志里曾出现「仅写出 0 字节」，多为 **本机多网卡（含 WSL/Hyper-V 172.17.x）** 下绑定 0.0.0.0 导致；'
-          '请更新到已「优先绑定 192.168.x.x」的版本。若仍失败，再查防火墙：dart.exe / flutterdemo2.exe 与 python.exe 规则独立。',
-        );
-        _allSendFailStreak = 0;
-      }
       if (_zeroSendRounds >= 6 && !_recoverInProgress) {
         _zeroSendRounds = 0;
         _recoverInProgress = true;
         unawaited(_recoverSocketThenClear());
       }
     } else {
-      _allSendFailStreak = 0;
       _zeroSendRounds = 0;
     }
   }
@@ -308,8 +294,6 @@ class LanBroadcastController {
     _payloadBuilder = null;
     _isSelf = null;
     _onPeer = null;
-    _onTransportWarning = null;
-    _allSendFailStreak = 0;
     _zeroSendRounds = 0;
     _recoverInProgress = false;
   }

@@ -1,5 +1,5 @@
 name: flutterdemo2
-description: "A new Flutter project."
+description: "内网文件传输与远程协助（桌面端）。"
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -44,6 +44,7 @@ dependencies:
   provider: ^6.1.5+1
   desktop_drop: ^0.7.0
   path: ^1.9.1
+  window_manager: ^0.5.1
 
 dev_dependencies:
   flutter_test:
@@ -57,6 +58,7 @@ dev_dependencies:
   flutter_lints: ^6.0.0
   integration_test:
     sdk: flutter
+  flutter_launcher_icons: ^0.14.4
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
@@ -68,6 +70,9 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
+
+  assets:
+    - assets/app_icon.png
 
   # To add assets to your application, add an assets section, like this:
   # assets:
@@ -99,3 +104,21 @@ flutter:
   #
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
+
+flutter_launcher_icons:
+  image_path: assets/app_icon.png
+  android: true
+  ios: true
+  adaptive_icon_background: "#FF6B35"
+  adaptive_icon_foreground: assets/app_icon.png
+  windows:
+    generate: true
+    image_path: assets/app_icon.png
+  macos:
+    generate: true
+    image_path: assets/app_icon.png
+  web:
+    generate: true
+    image_path: assets/app_icon.png
+    background_color: "#FF6B35"
+    theme_color: "#FF6B35"

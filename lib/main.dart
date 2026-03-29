@@ -1,13 +1,29 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:window_manager/window_manager.dart';
 
 import 'app/app_session.dart';
 import 'services/windows_firewall_setup.dart';
 import 'src/rust/frb_generated.dart';
 import 'ui/home_page.dart';
+import 'utils/desktop_chrome.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  if (isDesktopNative) {
+    await windowManager.ensureInitialized();
+    await windowManager.waitUntilReadyToShow(
+      const WindowOptions(
+        title: '内网传输工具',
+        titleBarStyle: TitleBarStyle.hidden,
+        windowButtonVisibility: false,
+      ),
+      () async {
+        await windowManager.show();
+        await windowManager.focus();
+      },
+    );
+  }
   await RustLib.init();
   final session = AppSession();
   await session.bootstrap();
@@ -46,7 +62,7 @@ class _XTransferAppState extends State<XTransferApp> {
       value: widget.session,
       child: MaterialApp(
         scaffoldMessengerKey: _messengerKey,
-        title: 'X传输工具',
+        title: '内网传输工具',
         theme: ThemeData(
           colorScheme: ColorScheme.fromSeed(seedColor: Colors.teal),
           useMaterial3: true,

@@ -8,7 +8,6 @@ class LanBroadcastController {
     required void Function(DiscoveredPeer peer) onPeer,
     required Map<String, dynamic> Function() payloadBuilder,
     required bool Function(String did) isSelf,
-    void Function(String message)? onTransportWarning,
   }) async => false;
 
   void dispose() {}

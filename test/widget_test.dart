@@ -17,7 +17,7 @@ void main() {
     );
     await tester.pump();
 
-    expect(find.text('X传输工具'), findsOneWidget);
+    expect(find.text('内网传输工具'), findsOneWidget);
     expect(find.textContaining('Rust API 烟测'), findsNothing);
   });
 
@@ -26,6 +26,6 @@ void main() {
     await session.bootstrap();
     await tester.pumpWidget(XTransferApp(session: session));
     await tester.pump();
-    expect(find.text('X传输工具'), findsOneWidget);
+    expect(find.text('内网传输工具'), findsOneWidget);
   });
 }
