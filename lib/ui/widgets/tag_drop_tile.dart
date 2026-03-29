@@ -1,28 +1,30 @@
 import 'package:desktop_drop/desktop_drop.dart';
 import 'package:flutter/material.dart';
 
-/// 可拖放目标的用户行：悬停时高亮（清单 4.2 传输入口视觉反馈）。
-class UserDropTile extends StatefulWidget {
-  const UserDropTile({
+import '../../models/discovered_peer.dart';
+
+/// 可拖放目标的标签行：悬停时高亮，支持拖拽到标签上传输给所有用户
+class TagDropTile extends StatefulWidget {
+  const TagDropTile({
     super.key,
     required this.enableDrop,
     required this.onDrop,
-    required this.title,
-    required this.subtitle,
-    this.trailing,
+    required this.label,
+    required this.users,
+    this.subtitle,
   });
 
   final bool enableDrop;
-  final void Function(DropDoneDetails details) onDrop;
-  final Widget title;
-  final Widget subtitle;
-  final Widget? trailing;
+  final void Function(List<DiscoveredPeer> users, DropDoneDetails details) onDrop;
+  final String label;
+  final List<DiscoveredPeer> users;
+  final Widget? subtitle;
 
   @override
-  State<UserDropTile> createState() => _UserDropTileState();
+  State<TagDropTile> createState() => _TagDropTileState();
 }
 
-class _UserDropTileState extends State<UserDropTile> {
+class _TagDropTileState extends State<TagDropTile> {
   bool _hover = false;
 
   @override
@@ -39,10 +41,10 @@ class _UserDropTileState extends State<UserDropTile> {
         color: _hover ? scheme.primaryContainer.withValues(alpha: 0.35) : null,
       ),
       child: ListTile(
-        leading: const Icon(Icons.person_outline),
-        title: widget.title,
-        subtitle: widget.subtitle,
-        trailing: widget.trailing,
+        leading: const Icon(Icons.label_outline),
+        title: Text(widget.label),
+        subtitle: widget.subtitle ?? Text('${widget.users.length} 个用户'),
+        trailing: const Icon(Icons.people_outline),
       ),
     );
 
@@ -54,13 +56,9 @@ class _UserDropTileState extends State<UserDropTile> {
       onDragExited: (_) => setState(() => _hover = false),
       onDragDone: (d) {
         setState(() => _hover = false);
-        widget.onDrop(d);
+        widget.onDrop(widget.users, d);
       },
-      // 使用IgnorePointer阻止事件冒泡到父级DropTarget
-      child: IgnorePointer(
-        ignoring: false,
-        child: child,
-      ),
+      child: child,
     );
   }
 }

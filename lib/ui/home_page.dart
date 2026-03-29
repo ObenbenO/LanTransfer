@@ -13,7 +13,128 @@ import 'about_page.dart';
 import 'remote_desktop_page.dart';
 import 'settings_page.dart';
 import 'troubleshooting_page.dart';
+import 'widgets/tag_drop_tile.dart';
 import 'widgets/user_drop_tile.dart';
+
+/// 标签展开状态
+class _ExpansionState {
+  _ExpansionState(this.expanded, this.hover);
+  
+  final bool expanded;
+  final bool hover;
+}
+
+/// 可展开的标签组件（StatefulWidget实现）
+class _TagExpansionTileStateful extends StatefulWidget {
+  const _TagExpansionTileStateful({
+    required this.label,
+    required this.users,
+    required this.children,
+    required this.dropEnabled,
+    required this.onDropTag,
+    required this.buildChild,
+  });
+
+  final String label;
+  final List<DiscoveredPeer> users;
+  final List<UserTreeNode> children;
+  final bool dropEnabled;
+  final void Function(List<DiscoveredPeer> users, DropDoneDetails details) onDropTag;
+  final Widget Function(UserTreeNode node) buildChild;
+
+  @override
+  State<_TagExpansionTileStateful> createState() => _TagExpansionTileStatefulState();
+}
+
+class _TagExpansionTileStatefulState extends State<_TagExpansionTileStateful> {
+  bool _expanded = false;
+  bool _hover = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    
+    // 标签头部内容
+    final headerContent = AnimatedContainer(
+      duration: const Duration(milliseconds: 120),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: _hover ? scheme.primary : scheme.outlineVariant,
+          width: _hover ? 2 : 1,
+        ),
+        color: _hover ? scheme.primaryContainer.withValues(alpha: 0.35) : null,
+      ),
+      child: ListTile(
+        leading: Icon(_expanded ? Icons.expand_more : Icons.chevron_right),
+        title: Text(widget.label),
+        subtitle: widget.users.isNotEmpty
+            ? Text('${widget.users.length} 个用户 · 点击展开')
+            : const Text('暂无用户'),
+        trailing: const Icon(Icons.people_outline),
+      ),
+    );
+    
+    // 如果没有用户或拖拽未启用，直接返回头部内容
+    if (!widget.dropEnabled || widget.users.isEmpty) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          GestureDetector(
+            onTap: () => setState(() => _expanded = !_expanded),
+            child: MouseRegion(
+              onEnter: (_) => setState(() => _hover = true),
+              onExit: (_) => setState(() => _hover = false),
+              child: headerContent,
+            ),
+          ),
+          if (_expanded)
+            Padding(
+              padding: const EdgeInsets.only(left: 16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: widget.children.map(widget.buildChild).toList(),
+              ),
+            ),
+        ],
+      );
+    }
+    
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // 标签头部（可点击展开 + 可拖拽）
+        GestureDetector(
+          onTap: () => setState(() => _expanded = !_expanded),
+          child: MouseRegion(
+            onEnter: (_) => setState(() => _hover = true),
+            onExit: (_) => setState(() => _hover = false),
+            child: DropTarget(
+              enable: widget.dropEnabled && widget.users.isNotEmpty,
+              onDragEntered: (_) => setState(() => _hover = true),
+              onDragExited: (_) => setState(() => _hover = false),
+              onDragDone: (d) {
+                setState(() => _hover = false);
+                widget.onDropTag(widget.users, d);
+              },
+              child: headerContent,
+            ),
+          ),
+        ),
+        
+        // 展开的子节点
+        if (_expanded)
+          Padding(
+            padding: const EdgeInsets.only(left: 16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: widget.children.map(widget.buildChild).toList(),
+            ),
+          ),
+      ],
+    );
+  }
+}
 
 class HomePage extends StatelessWidget {
   const HomePage({super.key});
@@ -247,25 +368,161 @@ class HomePage extends StatelessWidget {
           ),
         );
       case TagTreeNode(:final label, :final children):
-        return Padding(
-          padding: const EdgeInsets.only(left: 8, bottom: 4),
-          child: DropTarget(
-            enable: _dropEnabled,
-            onDragDone: (_) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('请拖到「具体用户」行上发送；标签节点不接收文件')),
-              );
-            },
-            child: ExpansionTile(
-              tilePadding: EdgeInsets.zero,
-              title: Text(label),
-              subtitle: const Text('请展开后，把文件拖到具体用户上'),
-              children: children
-                  .map((c) => _buildNode(context, session, c))
-                  .toList(),
-            ),
-          ),
+        final users = _collectUsersFromNode(TagTreeNode(label: label, children: children));
+        return _TagExpansionTile(
+          label: label,
+          users: users,
+          children: children,
+          session: session,
+          dropEnabled: _dropEnabled,
+          onDropTag: (users, d) => _onDropTag(context, session, users, d),
+          buildChild: (node) => _buildNode(context, session, node),
         );
+    }
+  }
+
+  /// 收集标签节点下的所有用户
+  List<DiscoveredPeer> _collectUsersFromNode(UserTreeNode node) {
+    final users = <DiscoveredPeer>[];
+    
+    void traverse(UserTreeNode n) {
+      switch (n) {
+        case UserTreeLeaf(:final peer):
+          users.add(peer);
+        case TagTreeNode(:final children):
+          for (final child in children) {
+            traverse(child);
+          }
+      }
+    }
+    
+    traverse(node);
+    return users;
+  }
+
+  /// 树形展开的标签组件，避免DropTarget嵌套
+  Widget _TagExpansionTile({
+    required String label,
+    required List<DiscoveredPeer> users,
+    required List<UserTreeNode> children,
+    required AppSession session,
+    required bool dropEnabled,
+    required void Function(List<DiscoveredPeer> users, DropDoneDetails details) onDropTag,
+    required Widget Function(UserTreeNode node) buildChild,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(left: 8, bottom: 4),
+      child: _TagExpansionTileStateful(
+        label: label,
+        users: users,
+        children: children,
+        dropEnabled: dropEnabled,
+        onDropTag: onDropTag,
+        buildChild: buildChild,
+      ),
+    );
+  }
+
+  /// 处理标签拖拽事件：向标签下所有用户发送文件
+  Future<void> _onDropTag(
+    BuildContext context,
+    AppSession session,
+    List<DiscoveredPeer> users,
+    DropDoneDetails d,
+  ) async {
+    final paths = AppSession.pathsFromDropDetails(d);
+    if (paths.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('未识别到本地文件路径')),
+      );
+      return;
+    }
+    
+    final msg = await _askMessage(context) ?? '';
+    if (!context.mounted) return;
+
+    // 显示批量传输对话框
+    final result = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: Text('批量发送到 ${users.length} 个用户'),
+        content: Text(
+          '确认向「${users.first.tags.first}」标签下的 ${users.length} 个用户发送 ${paths.length} 个文件？',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('确认发送'),
+          ),
+        ],
+      ),
+    );
+
+    if (result != true || !context.mounted) return;
+
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => PopScope(
+        canPop: false,
+        child: AlertDialog(
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const CircularProgressIndicator(),
+              const SizedBox(height: 20),
+              Text(
+                '正在向 ${users.length} 个用户发送文件…',
+                textAlign: TextAlign.center,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    try {
+      // 使用顺序发送避免并发问题
+      int successCount = 0;
+      int failCount = 0;
+      
+      for (final peer in users) {
+        try {
+          await session.sendToPeer(
+            filePaths: paths,
+            peerId: peer.peerId,
+            message: msg,
+          );
+          successCount++;
+        } catch (e) {
+          failCount++;
+          debugPrint('向用户 ${peer.nickname} 发送失败: $e');
+        }
+        
+        // 添加小延迟避免过快发送
+        await Future.delayed(const Duration(milliseconds: 100));
+      }
+
+      if (!context.mounted) return;
+      
+      Navigator.of(context, rootNavigator: true).pop();
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '批量发送完成: $successCount 成功, $failCount 失败',
+          ),
+          duration: const Duration(seconds: 5),
+        ),
+      );
+    } catch (e) {
+      if (context.mounted) Navigator.of(context, rootNavigator: true).pop();
+      rethrow;
     }
   }
 
