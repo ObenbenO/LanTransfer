@@ -17,6 +17,203 @@ import 'troubleshooting_page.dart';
 import 'widgets/tag_drop_tile.dart';
 import 'widgets/user_drop_tile.dart';
 
+/// 首页分区标题样式：整段同一 [fontWeight]，避免部分系统上中文出现「前几个字粗、后几个字细」的错觉。
+TextStyle _homeSectionTitleStyle(BuildContext context) {
+  final base = Theme.of(context).textTheme.titleMedium;
+  return (base ?? const TextStyle(fontSize: 16)).copyWith(
+    fontWeight: FontWeight.w600,
+    letterSpacing: 0.4,
+    height: 1.25,
+  );
+}
+
+/// 分区标题行：左图标 + 文案（图标颜色为主色）。
+Widget _sectionTitleRow(
+  BuildContext context, {
+  required IconData icon,
+  required String label,
+}) {
+  final scheme = Theme.of(context).colorScheme;
+  return Padding(
+    padding: const EdgeInsets.only(bottom: 6, top: 2),
+    child: Row(
+      children: [
+        Icon(icon, size: 22, color: scheme.primary),
+        const SizedBox(width: 8),
+        Text(label, style: _homeSectionTitleStyle(context)),
+      ],
+    ),
+  );
+}
+
+/// 右上角弹出菜单项：图标 + 文案。
+Widget _popupMenuRow(
+  BuildContext context, {
+  required IconData icon,
+  required String label,
+}) {
+  return Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Icon(icon, size: 22, color: Theme.of(context).colorScheme.primary),
+      const SizedBox(width: 12),
+      Text(label, style: Theme.of(context).textTheme.bodyLarge),
+    ],
+  );
+}
+
+/// 接收记录中展示发送方：优先用发现列表得到「昵称 · 标签/标签/…」；否则提示未在列表。
+String _senderDisplayLine(AppSession session, FileReceiveEventDto e) {
+  final peer = session.peersById[e.senderPeerId];
+  if (peer != null) {
+    final nick = peer.nickname.trim().isEmpty ? '（对方未设置昵称）' : peer.nickname;
+    if (peer.tags.isEmpty) {
+      return nick;
+    }
+    return '$nick · ${peer.tags.join(' / ')}';
+  }
+  final id = e.senderPeerId;
+  final short = id.length <= 14 ? id : '${id.substring(0, 10)}…';
+  return '未在列表中的用户 · $short';
+}
+
+String _formatReceiveTimeMs(int ms) {
+  final t = DateTime.fromMillisecondsSinceEpoch(ms).toLocal();
+  return '${t.hour.toString().padLeft(2, '0')}:'
+      '${t.minute.toString().padLeft(2, '0')}:'
+      '${t.second.toString().padLeft(2, '0')}';
+}
+
+/// 单条接收记录：文件名 + 用户信息行 + 留言气泡（仿聊天浅色底）+ 时间。
+Widget _receiveEventCard(
+  BuildContext context,
+  AppSession session,
+  FileReceiveEventDto e,
+) {
+  final scheme = Theme.of(context).colorScheme;
+  final t = Theme.of(context).textTheme;
+  final senderLine = _senderDisplayLine(session, e);
+  final msg = e.message.trim();
+  final err = e.error?.trim();
+
+  return Padding(
+    padding: const EdgeInsets.only(bottom: 10),
+    child: Material(
+      color: scheme.surfaceContainerHighest.withValues(alpha: 0.55),
+      borderRadius: BorderRadius.circular(18),
+      clipBehavior: Clip.antiAlias,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(10, 10, 10, 12),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            CartoonFileIcon(fileName: e.fileName),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          e.fileName,
+                          style: t.titleSmall?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                          maxLines: 3,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        _formatReceiveTimeMs(e.timestampMs.toInt()),
+                        style: t.labelSmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (err != null && err.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      err,
+                      style: t.bodySmall?.copyWith(color: scheme.error),
+                    ),
+                  ],
+                  const SizedBox(height: 6),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.only(top: 1),
+                        child: Icon(
+                          Icons.account_circle_outlined,
+                          size: 16,
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          senderLine,
+                          style: t.bodySmall?.copyWith(
+                            color: scheme.onSurfaceVariant,
+                            height: 1.35,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (msg.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: scheme.primaryContainer.withValues(alpha: 0.38),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                          color: scheme.outlineVariant.withValues(alpha: 0.65),
+                        ),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 9,
+                        ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(
+                              Icons.chat_bubble_outline_rounded,
+                              size: 16,
+                              color: scheme.primary.withValues(alpha: 0.85),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                msg,
+                                style: t.bodyMedium?.copyWith(
+                                  height: 1.4,
+                                  color: scheme.onSurface,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
 /// 标签展开状态
 class _ExpansionState {
   _ExpansionState(this.expanded, this.hover);
@@ -247,10 +444,11 @@ class HomePage extends StatelessWidget {
 
   Future<void> _exportReceiveLogToFile(BuildContext context) async {
     final s = context.read<AppSession>();
-    final buf = StringBuffer()..writeln('文件名\t发送方\t留言\ttimestamp_ms');
+    final buf = StringBuffer()..writeln('文件名\t用户信息\t留言\ttimestamp_ms');
     for (final e in s.receiveLog) {
       buf.writeln(
-        '${e.fileName}\t${e.senderPeerId}\t${e.message.replaceAll('\t', ' ')}\t${e.timestampMs}',
+        '${e.fileName}\t${_senderDisplayLine(s, e).replaceAll('\t', ' ')}\t'
+        '${e.message.replaceAll('\t', ' ')}\t${e.timestampMs}',
       );
     }
     final text = buf.toString();
@@ -273,7 +471,7 @@ class HomePage extends StatelessWidget {
     final s = context.read<AppSession>();
     final buf = StringBuffer();
     for (final e in s.receiveLog) {
-      buf.writeln('${e.fileName} | ${e.senderPeerId} | ${e.message}');
+      buf.writeln('${e.fileName} | ${_senderDisplayLine(s, e)} | ${e.message}');
     }
     await Clipboard.setData(ClipboardData(text: buf.toString()));
     if (!context.mounted) return;
@@ -542,7 +740,20 @@ class HomePage extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('我的信息', style: Theme.of(context).textTheme.titleSmall),
+                Row(
+                  children: [
+                    Icon(
+                      Icons.person_pin_rounded,
+                      size: 22,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      '我的信息',
+                      style: _homeSectionTitleStyle(context),
+                    ),
+                  ],
+                ),
                 const SizedBox(height: 6),
                 SelectableText(_profileLine(session)),
               ],
@@ -573,8 +784,11 @@ class HomePage extends StatelessWidget {
           ),
         ],
         const SizedBox(height: 12),
-        Text('传输进度', style: Theme.of(context).textTheme.titleMedium),
-        const SizedBox(height: 6),
+        _sectionTitleRow(
+          context,
+          icon: Icons.auto_awesome_motion_rounded,
+          label: '传输进度',
+        ),
         Card(
           child: Padding(
             padding: const EdgeInsets.all(12),
@@ -601,8 +815,28 @@ class HomePage extends StatelessWidget {
         const SizedBox(height: 12),
         ExpansionTile(
           initiallyExpanded: true,
-          title: Text('其它用户', style: Theme.of(context).textTheme.titleMedium),
-          subtitle: const Text('按标签分组；拖文件到某一用户即可发送'),
+          title: Row(
+            children: [
+              Icon(
+                Icons.groups_rounded,
+                size: 22,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  '其它用户',
+                  style: _homeSectionTitleStyle(context),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+          subtitle: Text(
+            '按标签分组；拖文件到某一用户即可发送',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
           children: [
             if (session.discoverySupported)
               ListTile(
@@ -642,8 +876,14 @@ class HomePage extends StatelessWidget {
               color: Theme.of(context).colorScheme.primary,
             ),
             const SizedBox(width: 8),
-            Text('接收记录', style: Theme.of(context).textTheme.titleMedium),
-            const Spacer(),
+            Expanded(
+              child: Text(
+                '接收记录',
+                style: _homeSectionTitleStyle(context),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
             TextButton(
               onPressed: session.receiveLog.isEmpty
                   ? null
@@ -666,38 +906,7 @@ class HomePage extends StatelessWidget {
           const Text('暂无', style: TextStyle(color: Colors.black54))
         else
           ...session.receiveLog.reversed.map(
-            (e) => Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: Material(
-                color: Theme.of(context)
-                    .colorScheme
-                    .surfaceContainerHighest
-                    .withValues(alpha: 0.55),
-                borderRadius: BorderRadius.circular(18),
-                clipBehavior: Clip.antiAlias,
-                child: ListTile(
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 4,
-                  ),
-                  leading: CartoonFileIcon(fileName: e.fileName),
-                  title: Text(
-                    e.fileName,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  subtitle: Text(
-                    '${e.senderPeerId} · ${e.message}',
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  trailing: Text(
-                    _shortTime(e.timestampMs.toInt()),
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                ),
-              ),
-            ),
+            (e) => _receiveEventCard(context, session, e),
           ),
       ],
     );
@@ -736,10 +945,31 @@ class HomePage extends StatelessWidget {
                   );
               }
             },
-            itemBuilder: (context) => const [
-              PopupMenuItem(value: 'settings', child: Text('设置')),
-              PopupMenuItem(value: 'help', child: Text('连接问题说明')),
-              PopupMenuItem(value: 'about', child: Text('关于')),
+            itemBuilder: (context) => [
+              PopupMenuItem<String>(
+                value: 'settings',
+                child: _popupMenuRow(
+                  context,
+                  icon: Icons.settings_outlined,
+                  label: '设置',
+                ),
+              ),
+              PopupMenuItem<String>(
+                value: 'help',
+                child: _popupMenuRow(
+                  context,
+                  icon: Icons.help_outline_rounded,
+                  label: '连接问题说明',
+                ),
+              ),
+              PopupMenuItem<String>(
+                value: 'about',
+                child: _popupMenuRow(
+                  context,
+                  icon: Icons.info_outline_rounded,
+                  label: '关于',
+                ),
+              ),
             ],
           ),
         ],
@@ -754,13 +984,6 @@ class HomePage extends StatelessWidget {
         child: body,
       ),
     );
-  }
-
-  String _shortTime(int ms) {
-    final t = DateTime.fromMillisecondsSinceEpoch(ms).toLocal();
-    return '${t.hour.toString().padLeft(2, '0')}:'
-        '${t.minute.toString().padLeft(2, '0')}:'
-        '${t.second.toString().padLeft(2, '0')}';
   }
 
   String _shortTransferId(String id) =>
