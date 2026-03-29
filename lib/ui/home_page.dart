@@ -8,6 +8,7 @@ import '../app/app_session.dart';
 import '../files/export_text.dart';
 import '../models/discovered_peer.dart';
 import '../models/user_tree.dart';
+import '../utils/cartoon_file_icon.dart';
 import '../src/rust/api/types.dart';
 import 'about_page.dart';
 import 'remote_desktop_page.dart';
@@ -635,6 +636,12 @@ class HomePage extends StatelessWidget {
         const SizedBox(height: 16),
         Row(
           children: [
+            Icon(
+              Icons.inbox_rounded,
+              size: 22,
+              color: Theme.of(context).colorScheme.primary,
+            ),
+            const SizedBox(width: 8),
             Text('接收记录', style: Theme.of(context).textTheme.titleMedium),
             const Spacer(),
             TextButton(
@@ -659,13 +666,36 @@ class HomePage extends StatelessWidget {
           const Text('暂无', style: TextStyle(color: Colors.black54))
         else
           ...session.receiveLog.reversed.map(
-            (e) => ListTile(
-              dense: true,
-              title: Text(e.fileName),
-              subtitle: Text('${e.senderPeerId} · ${e.message}'),
-              trailing: Text(
-                _shortTime(e.timestampMs.toInt()),
-                style: Theme.of(context).textTheme.bodySmall,
+            (e) => Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Material(
+                color: Theme.of(context)
+                    .colorScheme
+                    .surfaceContainerHighest
+                    .withValues(alpha: 0.55),
+                borderRadius: BorderRadius.circular(18),
+                clipBehavior: Clip.antiAlias,
+                child: ListTile(
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 4,
+                  ),
+                  leading: CartoonFileIcon(fileName: e.fileName),
+                  title: Text(
+                    e.fileName,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  subtitle: Text(
+                    '${e.senderPeerId} · ${e.message}',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  trailing: Text(
+                    _shortTime(e.timestampMs.toInt()),
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ),
               ),
             ),
           ),
