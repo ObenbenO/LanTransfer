@@ -1,6 +1,6 @@
-//! 与 Flutter 对齐的 DTO 与错误类型（flutter_rust_bridge 生成 Dart 绑定）。
+//! DTO 与错误类型。
 
-/// 业务错误，便于 Flutter 按 `code` 做分支提示。
+/// 业务错误，便于按 `code` 做分支提示。
 #[derive(Clone, Debug)]
 pub struct ApiError {
     pub code: String,
@@ -43,7 +43,7 @@ pub struct SendFilesRequestDto {
     pub message: String,
 }
 
-/// 接收端事件（文件名 + 留言等），供 Flutter 轮询或后续改为 Stream。
+/// 接收端事件（文件名 + 留言等），供 UI 轮询或后续改为 Stream。
 #[derive(Clone, Debug)]
 pub struct FileReceiveEventDto {
     pub file_name: String,
@@ -83,7 +83,7 @@ pub struct RemoteKeyEventDto {
     pub modifiers: i32,
 }
 
-/// 一帧 RGBA 裸数据，供 Flutter `texture_rgba_renderer` 使用（当前占位返回空）。
+/// 一帧 RGBA 裸数据（当前占位返回空）。
 #[derive(Clone, Debug)]
 pub struct VideoFrameDto {
     pub width: u32,

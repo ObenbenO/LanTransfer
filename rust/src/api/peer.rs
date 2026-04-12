@@ -1,9 +1,8 @@
 //! Bonsoir 发现结果注入与对端列表维护。
 
-use crate::app_state::{with_state, with_state_mut};
 use super::types::{ApiError, PeerInfoDto};
+use crate::app_state::{with_state, with_state_mut};
 
-#[flutter_rust_bridge::frb(sync)]
 pub fn register_discovered_peer(peer: PeerInfoDto) -> Result<(), ApiError> {
     with_state_mut(|s| {
         if !s.initialized {
@@ -17,7 +16,6 @@ pub fn register_discovered_peer(peer: PeerInfoDto) -> Result<(), ApiError> {
     })
 }
 
-#[flutter_rust_bridge::frb(sync)]
 pub fn unregister_peer(peer_id: String) -> Result<(), ApiError> {
     with_state_mut(|s| {
         s.peers.remove(&peer_id);
@@ -28,7 +26,6 @@ pub fn unregister_peer(peer_id: String) -> Result<(), ApiError> {
     })
 }
 
-#[flutter_rust_bridge::frb(sync)]
 pub fn list_known_peers() -> Result<Vec<PeerInfoDto>, ApiError> {
     with_state(|s| {
         if !s.initialized {
@@ -38,7 +35,6 @@ pub fn list_known_peers() -> Result<Vec<PeerInfoDto>, ApiError> {
     })
 }
 
-#[flutter_rust_bridge::frb(sync)]
 pub fn clear_all_peers() -> Result<(), ApiError> {
     with_state_mut(|s| {
         s.peers.clear();
@@ -48,7 +44,6 @@ pub fn clear_all_peers() -> Result<(), ApiError> {
 }
 
 /// 将后续 `send_files` 默认对端设为该 peer（仍可在请求里显式指定）。
-#[flutter_rust_bridge::frb(sync)]
 pub fn connect_peer(peer_id: String) -> Result<(), ApiError> {
     with_state_mut(|s| {
         if !s.initialized {

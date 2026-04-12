@@ -127,7 +127,7 @@ def cmd_unicast(ns: argparse.Namespace) -> int:
 
 
 def cmd_diag(_: argparse.Namespace) -> int:
-    """本机环境快照：与 Flutter 是否占用 45678 无关的诊断（尝试绑定会短暂占用端口后释放）。"""
+    """本机环境快照：尝试绑定会短暂占用端口后释放。"""
     import platform
 
     print("=== lan_udp_probe diag ===")
@@ -142,7 +142,7 @@ def cmd_diag(_: argparse.Namespace) -> int:
     s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     try:
         s.bind(("0.0.0.0", PORT))
-        print(f"bind 0.0.0.0:{PORT}: OK（当前无进程占用；若随后启动 Flutter listen 会失败）")
+        print(f"bind 0.0.0.0:{PORT}: OK（当前无进程占用；若随后启动监听会失败）")
     except OSError as e:
         print(f"bind 0.0.0.0:{PORT}: FAIL -> {e}")
         print("说明：本机已有进程监听 45678（常为 X 传输或另一 listen），与对端无关。")
@@ -150,7 +150,7 @@ def cmd_diag(_: argparse.Namespace) -> int:
         s.close()
     print(
         "Wireshark：选正在上网的网卡，过滤 udp.port == 45678，"
-        "看 OUT/IN 与 Flutter 诊断报告对照。"
+        "看 OUT/IN 是否与预期一致。"
     )
     return 0
 

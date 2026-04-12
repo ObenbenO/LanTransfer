@@ -1,11 +1,17 @@
 //! 远程桌面控制端：XRDS 连接 + RGBA 帧轮询 + 输入发送。
 
-use crate::app_state::with_state_mut;
-use crate::remote_desktop::{client_connect, client_disconnect, client_send_key_bin, client_send_pointer_bin, client_try_take_frame};
 use super::types::{ApiError, RemoteKeyEventDto, RemotePointerEventDto, VideoFrameDto};
+use crate::app_state::with_state_mut;
+use crate::remote_desktop::{
+    client_connect, client_disconnect, client_send_key_bin, client_send_pointer_bin,
+    client_try_take_frame,
+};
 
-#[flutter_rust_bridge::frb]
-pub async fn remote_client_connect(host: String, port: u16, session_token: String) -> Result<(), ApiError> {
+pub async fn remote_client_connect(
+    host: String,
+    port: u16,
+    session_token: String,
+) -> Result<(), ApiError> {
     let tok = session_token.trim().to_string();
     if tok.is_empty() {
         return Err(ApiError::new("INVALID_TOKEN", "session_token 不能为空"));
@@ -24,7 +30,6 @@ pub async fn remote_client_connect(host: String, port: u16, session_token: Strin
     })
 }
 
-#[flutter_rust_bridge::frb]
 pub async fn remote_client_disconnect() -> Result<(), ApiError> {
     client_disconnect();
     with_state_mut(|s| {
@@ -34,12 +39,10 @@ pub async fn remote_client_disconnect() -> Result<(), ApiError> {
     })
 }
 
-#[flutter_rust_bridge::frb(sync)]
 pub fn remote_client_try_take_rgba_frame() -> Option<VideoFrameDto> {
     client_try_take_frame()
 }
 
-#[flutter_rust_bridge::frb(sync)]
 pub fn remote_client_send_pointer(event: RemotePointerEventDto) -> Result<(), ApiError> {
     with_state_mut(|s| {
         if s.remote_client_peer.is_none() {
@@ -50,7 +53,6 @@ pub fn remote_client_send_pointer(event: RemotePointerEventDto) -> Result<(), Ap
     client_send_pointer_bin(&event)
 }
 
-#[flutter_rust_bridge::frb(sync)]
 pub fn remote_client_send_key(event: RemoteKeyEventDto) -> Result<(), ApiError> {
     with_state_mut(|s| {
         if s.remote_client_peer.is_none() {

@@ -4,15 +4,12 @@ use std::path::Path;
 
 use uuid::Uuid;
 
+use super::types::{ApiError, FileReceiveEventDto, SendFilesRequestDto, TransferProgressDto};
 use crate::app_state::{
     now_ms_pub, push_progress, push_receive_event, spawn_file_listener, with_state, with_state_mut,
 };
 use crate::file_transfer::send_files_blocking;
-use super::types::{
-    ApiError, FileReceiveEventDto, SendFilesRequestDto, TransferProgressDto,
-};
 
-#[flutter_rust_bridge::frb]
 pub async fn file_service_start(preferred_port: Option<u16>) -> Result<u16, ApiError> {
     with_state_mut(|s| {
         if !s.initialized {
@@ -31,7 +28,6 @@ pub async fn file_service_start(preferred_port: Option<u16>) -> Result<u16, ApiE
     })
 }
 
-#[flutter_rust_bridge::frb]
 pub async fn file_service_stop() -> Result<(), ApiError> {
     with_state_mut(|s| {
         s.file_service.take();
@@ -40,7 +36,6 @@ pub async fn file_service_stop() -> Result<(), ApiError> {
     })
 }
 
-#[flutter_rust_bridge::frb]
 pub async fn send_files(req: SendFilesRequestDto) -> Result<String, ApiError> {
     let target = if req.target_peer_id.trim().is_empty() {
         with_state(|s| {
@@ -63,16 +58,10 @@ pub async fn send_files(req: SendFilesRequestDto) -> Result<String, ApiError> {
     for fp in &req.file_paths {
         let p = Path::new(fp);
         if !p.exists() {
-            return Err(ApiError::new(
-                "FILE_NOT_FOUND",
-                format!("文件不存在: {fp}"),
-            ));
+            return Err(ApiError::new("FILE_NOT_FOUND", format!("文件不存在: {fp}")));
         }
         if !p.is_file() {
-            return Err(ApiError::new(
-                "NOT_A_FILE",
-                format!("路径不是文件: {fp}"),
-            ));
+            return Err(ApiError::new("NOT_A_FILE", format!("路径不是文件: {fp}")));
         }
     }
 
@@ -86,63 +75,85 @@ pub async fn send_files(req: SendFilesRequestDto) -> Result<String, ApiError> {
     let sender_id = with_state(|s| s.device_id.clone());
     let paths = req.file_paths.clone();
     let message = req.message.clone();
-    let tid = transfer_id.clone();
     let host_owned = host.clone();
 
-    let join = tokio::task::spawn_blocking(move || {
-        send_files_blocking(
-            &host_owned,
-            port,
-            &sender_id,
-            &message,
-            &paths,
-            &tid,
-            total,
-        )
+    let tid = transfer_id.clone();
+    tokio::spawn(async move {
+        let tid_for_blocking = tid.clone();
+        let join = tokio::task::spawn_blocking(move || {
+            send_files_blocking(
+                &host_owned,
+                port,
+                &sender_id,
+                &message,
+                &paths,
+                &tid_for_blocking,
+                total,
+            )
+        });
+        match join.await {
+            Ok(Ok(())) => {
+                with_state_mut(|s| {
+                    push_progress(
+                        s,
+                        TransferProgressDto {
+                            transfer_id: tid.clone(),
+                            bytes_sent: total,
+                            total_bytes: total,
+                            phase: "done".to_string(),
+                            error: None,
+                        },
+                    );
+                });
+            }
+            Ok(Err(e)) => {
+                with_state_mut(|s| {
+                    push_progress(
+                        s,
+                        TransferProgressDto {
+                            transfer_id: tid.clone(),
+                            bytes_sent: 0,
+                            total_bytes: total,
+                            phase: "failed".to_string(),
+                            error: Some(e.message.clone()),
+                        },
+                    );
+                });
+            }
+            Err(_) => {
+                with_state_mut(|s| {
+                    push_progress(
+                        s,
+                        TransferProgressDto {
+                            transfer_id: tid.clone(),
+                            bytes_sent: 0,
+                            total_bytes: total,
+                            phase: "failed".to_string(),
+                            error: Some("发送任务线程异常结束".to_string()),
+                        },
+                    );
+                });
+            }
+        }
     });
 
-    match join.await {
-        Ok(Ok(())) => Ok(transfer_id),
-        Ok(Err(e)) => {
-            with_state_mut(|s| {
-                push_progress(
-                    s,
-                    TransferProgressDto {
-                        transfer_id: transfer_id.clone(),
-                        bytes_sent: 0,
-                        total_bytes: total,
-                        phase: "failed".to_string(),
-                        error: Some(e.message.clone()),
-                    },
-                );
-            });
-            Err(e)
-        }
-        Err(_) => Err(ApiError::new(
-            "INTERNAL",
-            "发送任务线程异常结束",
-        )),
-    }
+    Ok(transfer_id)
 }
 
-#[flutter_rust_bridge::frb(sync)]
 pub fn cancel_transfer(_transfer_id: String) -> Result<(), ApiError> {
     // 占位：正式实现中取消后台任务句柄
     Ok(())
 }
 
-#[flutter_rust_bridge::frb(sync)]
 pub fn pull_file_receive_events() -> Vec<FileReceiveEventDto> {
     with_state_mut(|s| std::mem::take(&mut s.receive_events))
 }
 
-#[flutter_rust_bridge::frb(sync)]
 pub fn pull_transfer_progress() -> Vec<TransferProgressDto> {
     with_state_mut(|s| std::mem::take(&mut s.transfer_progress))
 }
 
 /// 测试用：模拟本机收到一条文件记录（单机无对端时供 UI 联调）。
-#[flutter_rust_bridge::frb(sync)]
 pub fn debug_push_mock_receive_event(
     file_name: String,
     message: String,

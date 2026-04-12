@@ -8,7 +8,9 @@ use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::api::types::{ApiError, FileReceiveEventDto, TransferProgressDto};
-use crate::app_state::{now_ms_pub, push_progress, push_receive_event, with_state_mut};
+use crate::app_state::{
+    diag_log_path, now_ms_pub, push_progress, push_receive_event, with_state_mut,
+};
 
 /// 接收目录副本：供 TCP 接收线程读取，**不得**在此路径上调用 `with_state` / `with_state_mut`。
 /// 否则与主线程里 `pull_transfer_progress`、`push_prog` 等争抢 `AppState` 锁时，
@@ -40,12 +42,12 @@ const MAX_SENDER_ID_BYTES: usize = 512;
 const MAX_FILE_COUNT: u32 = 512;
 const IO_BUF: usize = 64 * 1024;
 
-/// 诊断日志：与远程桌面类似，写入 `%TEMP%/flutterdemo2_file_transfer.log`，便于本机双端自测。
-const FT_DIAG_LOG: &str = "flutterdemo2_file_transfer.log";
+/// 诊断日志：与远程桌面类似，写入 `%TEMP%/lan_transfer_file_transfer.log`，便于本机双端自测。
+const FT_DIAG_LOG: &str = "lan_transfer_file_transfer.log";
 
 fn ft_append_diag_log(line: &str) {
     eprintln!("{line}");
-    let path = std::env::temp_dir().join(FT_DIAG_LOG);
+    let path = diag_log_path(FT_DIAG_LOG);
     if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(&path) {
         let ts = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -63,8 +65,10 @@ fn io_err(msg: impl Into<String>, e: io::Error) -> ApiError {
 fn io_err_send(msg: impl Into<String>, e: io::Error) -> ApiError {
     let head = msg.into();
     let mut detail = format!("{head}: {e}");
-    if matches!(e.kind(), io::ErrorKind::ConnectionReset | io::ErrorKind::BrokenPipe)
-        || e.raw_os_error() == Some(10054)
+    if matches!(
+        e.kind(),
+        io::ErrorKind::ConnectionReset | io::ErrorKind::BrokenPipe
+    ) || e.raw_os_error() == Some(10054)
     {
         detail.push_str(
             " — 请核对：对端为本应用且已更新到相同版本；连接的是「文件传输」端口而非远程协助端口；\
@@ -97,15 +101,13 @@ fn write_all(stream: &mut TcpStream, mut data: &[u8]) -> Result<(), ApiError> {
 
 fn write_all_send(stream: &mut TcpStream, mut data: &[u8]) -> Result<(), ApiError> {
     while !data.is_empty() {
-        let n = stream
-            .write(data)
-            .map_err(|e| {
-                ft_append_diag_log(&format!(
-                    "[ft-send] write_all_send FAILED len_remain={} err={e}",
-                    data.len()
-                ));
-                io_err_send("写入套接字", e)
-            })?;
+        let n = stream.write(data).map_err(|e| {
+            ft_append_diag_log(&format!(
+                "[ft-send] write_all_send FAILED len_remain={} err={e}",
+                data.len()
+            ));
+            io_err_send("写入套接字", e)
+        })?;
         if n == 0 {
             return Err(ApiError::new("FILE_IO", "写入套接字意外结束"));
         }
@@ -131,15 +133,13 @@ fn read_exact(stream: &mut TcpStream, buf: &mut [u8]) -> Result<(), ApiError> {
 fn read_exact_send(stream: &mut TcpStream, buf: &mut [u8]) -> Result<(), ApiError> {
     let mut off = 0;
     while off < buf.len() {
-        let n = stream
-            .read(&mut buf[off..])
-            .map_err(|e| {
-                ft_append_diag_log(&format!(
-                    "[ft-send] read_exact_send FAILED need={} got_off={off} err={e}",
-                    buf.len(),
-                ));
-                io_err_send("读取套接字", e)
-            })?;
+        let n = stream.read(&mut buf[off..]).map_err(|e| {
+            ft_append_diag_log(&format!(
+                "[ft-send] read_exact_send FAILED need={} got_off={off} err={e}",
+                buf.len(),
+            ));
+            io_err_send("读取套接字", e)
+        })?;
         if n == 0 {
             return Err(ApiError::new("FILE_IO", "连接对端提前关闭"));
         }
@@ -153,9 +153,7 @@ fn sanitize_saved_name(name: &str) -> String {
     if t.is_empty() {
         return "unnamed".to_string();
     }
-    let bad = |c: char| {
-        c == '/' || c == '\\' || c == ':' || c == '\0' || c == '\r' || c == '\n'
-    };
+    let bad = |c: char| c == '/' || c == '\\' || c == ':' || c == '\0' || c == '\r' || c == '\n';
     if t.contains("..") || t.chars().any(bad) {
         "unsafe_name".to_string()
     } else {
@@ -170,10 +168,7 @@ fn unique_save_path(dir: &Path, original: &str) -> PathBuf {
         return path;
     }
     let p = Path::new(&safe);
-    let stem = p
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("file");
+    let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("file");
     let ext = p
         .extension()
         .and_then(|e| e.to_str())
@@ -196,7 +191,13 @@ fn basename_for_send(src: &Path) -> String {
         .unwrap_or_else(|| "unnamed".to_string())
 }
 
-fn push_prog(transfer_id: &str, bytes_sent: i64, total_bytes: i64, phase: &str, err: Option<String>) {
+fn push_prog(
+    transfer_id: &str,
+    bytes_sent: i64,
+    total_bytes: i64,
+    phase: &str,
+    err: Option<String>,
+) {
     with_state_mut(|s| {
         push_progress(
             s,
@@ -245,14 +246,17 @@ pub fn send_files_blocking(
     push_prog(transfer_id, 0, total_bytes, "connecting", None);
     let mut stream = TcpStream::connect(addr.as_str()).map_err(|e| {
         ft_append_diag_log(&format!("[ft-send] TCP_CONNECT_FAILED {addr}: {e}"));
-        ApiError::new(
-            "TCP_CONNECT_FAILED",
-            format!("无法连接 {addr}: {e}"),
-        )
+        ApiError::new("TCP_CONNECT_FAILED", format!("无法连接 {addr}: {e}"))
     })?;
     let _ = stream.set_nodelay(true);
-    let local = stream.local_addr().map(|a| a.to_string()).unwrap_or_else(|_| "?".into());
-    let peer = stream.peer_addr().map(|a| a.to_string()).unwrap_or_else(|_| "?".into());
+    let local = stream
+        .local_addr()
+        .map(|a| a.to_string())
+        .unwrap_or_else(|_| "?".into());
+    let peer = stream
+        .peer_addr()
+        .map(|a| a.to_string())
+        .unwrap_or_else(|_| "?".into());
     ft_append_diag_log(&format!(
         "[ft-send] tcp_ok local={local} peer={peer} nodelay=on"
     ));
@@ -360,13 +364,7 @@ pub fn send_files_blocking(
         ));
     }
 
-    push_prog(
-        transfer_id,
-        total_bytes,
-        total_bytes,
-        "completed",
-        None,
-    );
+    push_prog(transfer_id, total_bytes, total_bytes, "completed", None);
     ft_append_diag_log(&format!(
         "[ft-send] completed_ok tid={transfer_id} total_sent={total_bytes}"
     ));
@@ -427,12 +425,7 @@ pub fn handle_incoming_connection(mut stream: TcpStream) {
     ft_append_diag_log(&format!("[ft-recv] session_end peer={peer}"));
 }
 
-fn push_recv_err(
-    file_name: String,
-    message: String,
-    sender_peer_id: String,
-    err: String,
-) {
+fn push_recv_err(file_name: String, message: String, sender_peer_id: String, err: String) {
     with_state_mut(|s| {
         push_receive_event(
             s,
@@ -562,18 +555,11 @@ fn handle_incoming_inner(stream: &mut TcpStream) -> Result<(), ApiError> {
             "[ft-recv] write_ack_failed ack={ack} err={}",
             e.message
         ));
-        push_recv_err(
-            String::new(),
-            message.clone(),
-            sender_id.clone(),
-            e.message,
-        );
+        push_recv_err(String::new(), message.clone(), sender_id.clone(), e.message);
         return Ok(());
     }
     if let Err(e) = stream.flush() {
-        ft_append_diag_log(&format!(
-            "[ft-recv] flush_ack_failed ack={ack} err={e}"
-        ));
+        ft_append_diag_log(&format!("[ft-recv] flush_ack_failed ack={ack} err={e}"));
         // flush 失败不放弃连接，继续处理
     }
     if ack != ACK_OK {
@@ -597,10 +583,7 @@ fn handle_incoming_inner(stream: &mut TcpStream) -> Result<(), ApiError> {
         let name_len = match read_u16(stream) {
             Ok(v) => v as usize,
             Err(e) => {
-                ft_append_diag_log(&format!(
-                    "[ft-recv] recv_name_len_fail err={}",
-                    e.message
-                ));
+                ft_append_diag_log(&format!("[ft-recv] recv_name_len_fail err={}", e.message));
                 push_recv_err(String::new(), message.clone(), sender_id.clone(), e.message);
                 return Ok(());
             }
@@ -683,12 +666,7 @@ fn handle_incoming_inner(stream: &mut TcpStream) -> Result<(), ApiError> {
                 });
             }
             Err(e) => {
-                push_recv_err(
-                    raw_name,
-                    message.clone(),
-                    sender_id.clone(),
-                    e.message,
-                );
+                push_recv_err(raw_name, message.clone(), sender_id.clone(), e.message);
                 return Ok(());
             }
         }
@@ -722,15 +700,13 @@ fn copy_n_from_stream(stream: &mut TcpStream, path: &Path, total: u64) -> Result
     while remaining > 0 {
         let chunk = (remaining as usize).min(IO_BUF);
         read_round += 1;
-        let n = stream
-            .read(&mut buf[..chunk])
-            .map_err(|e| {
-                ft_append_diag_log(&format!(
-                    "[ft-recv] copy_read_fail path={} remaining={remaining} err={e}",
-                    path.display()
-                ));
-                io_err("接收文件数据", e)
-            })?;
+        let n = stream.read(&mut buf[..chunk]).map_err(|e| {
+            ft_append_diag_log(&format!(
+                "[ft-recv] copy_read_fail path={} remaining={remaining} err={e}",
+                path.display()
+            ));
+            io_err("接收文件数据", e)
+        })?;
         if n == 0 {
             ft_append_diag_log(&format!(
                 "[ft-recv] copy_eof path={} copied={copied} expected={total}",

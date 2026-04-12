@@ -1,4 +1,4 @@
-//! 进程内共享状态（放在 `api` 外，避免 flutter_rust_bridge 扫描为对外类型）。
+//! 进程内共享状态。
 
 use std::collections::HashMap;
 use std::fs;
@@ -44,6 +44,7 @@ impl FileServiceHandle {
     }
 }
 
+#[derive(Default)]
 pub struct AppState {
     pub initialized: bool,
     pub cache_dir: Option<PathBuf>,
@@ -51,6 +52,7 @@ pub struct AppState {
     pub session_id: String,
     pub receive_path: Option<PathBuf>,
     pub profile: Option<LocalProfileDto>,
+    pub remote_host_enabled: bool,
     pub peers: HashMap<String, PeerInfoDto>,
     pub active_peer_id: Option<String>,
     pub file_service: Option<FileServiceHandle>,
@@ -62,30 +64,6 @@ pub struct AppState {
     pub remote_host_service: Option<FileServiceHandle>,
     pub remote_client_peer: Option<(String, u16)>,
     pub remote_client_token: Option<String>,
-}
-
-impl Default for AppState {
-    fn default() -> Self {
-        Self {
-            initialized: false,
-            cache_dir: None,
-            device_id: String::new(),
-            session_id: String::new(),
-            receive_path: None,
-            profile: None,
-            peers: HashMap::new(),
-            active_peer_id: None,
-            file_service: None,
-            file_listen_port: None,
-            receive_events: Vec::new(),
-            transfer_progress: Vec::new(),
-            remote_host_token: None,
-            remote_host_port: None,
-            remote_host_service: None,
-            remote_client_peer: None,
-            remote_client_token: None,
-        }
-    }
 }
 
 impl AppState {
@@ -115,22 +93,39 @@ pub fn with_state_mut<T>(f: impl FnOnce(&mut AppState) -> T) -> T {
     let mut g = global_state()
         .lock()
         .expect("rust app state mutex poisoned");
-    f(&mut *g)
+    f(&mut g)
 }
 
 pub fn with_state<T>(f: impl FnOnce(&AppState) -> T) -> T {
     let g = global_state()
         .lock()
         .expect("rust app state mutex poisoned");
-    f(&*g)
+    f(&g)
+}
+
+pub fn default_portable_cache_dir() -> PathBuf {
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|p| p.to_path_buf()))
+        .or_else(|| std::env::current_dir().ok());
+    exe_dir
+        .unwrap_or_else(std::env::temp_dir)
+        .join("lan_transfer_data")
+}
+
+pub fn app_data_dir() -> PathBuf {
+    let dir = with_state(|s| s.cache_dir.clone()).unwrap_or_else(default_portable_cache_dir);
+    let _ = fs::create_dir_all(&dir);
+    dir
+}
+
+pub fn diag_log_path(file_name: &str) -> PathBuf {
+    app_data_dir().join(file_name)
 }
 
 pub fn validate_receive_dir(path: &str) -> Result<PathBuf, ApiError> {
     if path.trim().is_empty() {
-        return Err(ApiError::new(
-            "INVALID_PATH",
-            "接收目录不能为空",
-        ));
+        return Err(ApiError::new("INVALID_PATH", "接收目录不能为空"));
     }
     let p = PathBuf::from(path);
     if !p.exists() {
@@ -139,12 +134,8 @@ pub fn validate_receive_dir(path: &str) -> Result<PathBuf, ApiError> {
             format!("目录不存在: {}", path),
         ));
     }
-    let meta = fs::metadata(&p).map_err(|e| {
-        ApiError::new(
-            "PATH_IO",
-            format!("无法访问目录: {e}"),
-        )
-    })?;
+    let meta =
+        fs::metadata(&p).map_err(|e| ApiError::new("PATH_IO", format!("无法访问目录: {e}")))?;
     if !meta.is_dir() {
         return Err(ApiError::new(
             "NOT_A_DIRECTORY",
@@ -162,20 +153,15 @@ pub fn spawn_file_listener(
         Some(p) => TcpListener::bind(("0.0.0.0", p)),
         None => TcpListener::bind(("0.0.0.0", 0)),
     }
-    .map_err(|e| {
-        ApiError::new(
-            "FILE_BIND_FAILED",
-            format!("文件服务绑定失败: {e}"),
-        )
-    })?;
+    .map_err(|e| ApiError::new("FILE_BIND_FAILED", format!("文件服务绑定失败: {e}")))?;
     let actual_port = listener
         .local_addr()
         .map_err(|e| ApiError::new("FILE_BIND_FAILED", format!("{e}")))?
         .port();
 
-    listener.set_nonblocking(true).map_err(|e| {
-        ApiError::new("FILE_LISTENER_IO", format!("set_nonblocking: {e}"))
-    })?;
+    listener
+        .set_nonblocking(true)
+        .map_err(|e| ApiError::new("FILE_LISTENER_IO", format!("set_nonblocking: {e}")))?;
 
     let shutdown = Arc::new(AtomicBool::new(false));
     let sd = Arc::clone(&shutdown);
@@ -205,12 +191,8 @@ pub fn spawn_file_listener(
 #[allow(dead_code)]
 pub fn try_tcp_ping(host: &str, port: u16) -> Result<(), ApiError> {
     let addr = format!("{host}:{port}");
-    TcpStream::connect(addr.as_str()).map_err(|e| {
-        ApiError::new(
-            "TCP_CONNECT_FAILED",
-            format!("无法连接 {addr}: {e}"),
-        )
-    })?;
+    TcpStream::connect(addr.as_str())
+        .map_err(|e| ApiError::new("TCP_CONNECT_FAILED", format!("无法连接 {addr}: {e}")))?;
     Ok(())
 }
 

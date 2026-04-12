@@ -2,16 +2,16 @@
 //! - 截屏：**xcap**（跨平台；内部 Windows 用 GDI/WGC 等，对标/替代已弃用的 scrap）。
 //! - 键鼠：**enigo**。
 //! - 传输：**裸 TCP** + `TCP_NODELAY`；局域网未使用 **quinn/QUIC**（避免复杂度，低延迟已足够）。
-//! - 画面：**JPEG** 帧（`image` 编码）减小带宽与 Flutter 解码耗时；保留 `MSG_VIDEO` RGBA 解析以兼容旧端。
+//! - 画面：**JPEG** 帧（`image` 编码）减小带宽与解码耗时；保留 `MSG_VIDEO` RGBA 解析以兼容旧端。
 
 use std::fs::OpenOptions;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
 use std::sync::{Arc, Mutex, OnceLock};
+use std::time::{SystemTime, UNIX_EPOCH};
 
-/// 与 Flutter `HardwareKeyboard` 对齐的修饰键掩码（与 `RemoteKeyEventDto.modifiers` 一致）。
+/// 修饰键掩码（与 `RemoteKeyEventDto.modifiers` 一致）。
 const MOD_SHIFT: i32 = 1;
 const MOD_CTRL: i32 = 2;
 const MOD_ALT: i32 = 4;
@@ -36,14 +36,14 @@ use image::{DynamicImage, ExtendedColorType, ImageEncoder, RgbaImage};
 use xcap::Monitor;
 
 use crate::api::types::{ApiError, RemotePointerEventDto, VideoFrameDto};
-use crate::app_state::FileServiceHandle;
+use crate::app_state::{diag_log_path, FileServiceHandle};
 
 pub const RD_MAGIC: &[u8; 4] = b"XRDS";
 const RD_VERSION: u16 = 1;
 const MSG_POINTER: u8 = 1;
 const MSG_KEY: u8 = 2;
 const MSG_VIDEO: u8 = 16;
-/// JPEG 压缩帧（局域网默认，体积小、Flutter 用 ImageCodec 解码快）。
+/// JPEG 压缩帧（局域网默认，体积小、解码快）。
 const MSG_JPEG: u8 = 17;
 const MAX_FRAME_BYTES: u32 = 16 * 1024 * 1024;
 const MAX_PAYLOAD: u32 = 4096;
@@ -88,17 +88,17 @@ fn write_u32_le(s: &mut TcpStream, v: u32) -> std::io::Result<()> {
 /// 控制端：最新一帧（由读线程写入，`try_take` 取走）。
 static RD_CLIENT_FRAME: Mutex<Option<VideoFrameDto>> = Mutex::new(None);
 
-/// 成功解析并写入 [RD_CLIENT_FRAME] 的次数（调试：区分「只解析到 1 帧」与「Flutter 未显示」）。
+/// 成功解析并写入 [RD_CLIENT_FRAME] 的次数（调试：区分「只解析到 1 帧」与「UI 未显示」）。
 static RD_CLIENT_FRAMES_PARSED_OK: AtomicU64 = AtomicU64::new(0);
 
 /// 被控端收到的键鼠控制帧计数（仅用于诊断日志）。
 static RD_HOST_CONTROL_RX: AtomicU64 = AtomicU64::new(0);
 
-/// Windows 桌面 GUI 进程通常**没有控制台**，`eprintln!` 在 `flutter run` 里往往看不到。
+/// Windows 桌面 GUI 进程通常**没有控制台**，`eprintln!` 往往看不到。
 /// 同时写入临时目录下的日志文件，便于排查。
 fn rd_append_diag_log(file_name: &str, line: &str) {
     eprintln!("{line}");
-    let path = std::env::temp_dir().join(file_name);
+    let path = diag_log_path(file_name);
     if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(&path) {
         let ts = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -179,16 +179,13 @@ pub fn client_send_pointer_bin(e: &RemotePointerEventDto) -> Result<(), ApiError
         .lock()
         .map_err(|_| ApiError::new("INTERNAL", "client mutex poisoned"))?;
     let Some(c) = g.as_ref() else {
-        return Err(ApiError::new(
-            "CLIENT_NOT_CONNECTED",
-            "控制端未连接",
-        ));
+        return Err(ApiError::new("CLIENT_NOT_CONNECTED", "控制端未连接"));
     };
     let mut w = c
         .writer
         .lock()
         .map_err(|_| ApiError::new("INTERNAL", "writer mutex poisoned"))?;
-    write_framed(&mut *w, &payload)
+    write_framed(&mut w, &payload)
         .map_err(|e| ApiError::new("RD_IO", format!("发送指针失败: {e}")))?;
     Ok(())
 }
@@ -200,16 +197,13 @@ pub fn client_send_key_bin(key_code: i32, down: bool, modifiers: i32) -> Result<
         .lock()
         .map_err(|_| ApiError::new("INTERNAL", "client mutex poisoned"))?;
     let Some(c) = g.as_ref() else {
-        return Err(ApiError::new(
-            "CLIENT_NOT_CONNECTED",
-            "控制端未连接",
-        ));
+        return Err(ApiError::new("CLIENT_NOT_CONNECTED", "控制端未连接"));
     };
     let mut w = c
         .writer
         .lock()
         .map_err(|_| ApiError::new("INTERNAL", "writer mutex poisoned"))?;
-    write_framed(&mut *w, &payload)
+    write_framed(&mut w, &payload)
         .map_err(|e| ApiError::new("RD_IO", format!("发送按键失败: {e}")))?;
     Ok(())
 }
@@ -302,9 +296,9 @@ fn client_reader_loop(mut r: TcpStream, shutdown: Arc<AtomicBool>) {
         }
         if let Some(frame) = parse_frame_payload(&buf) {
             let n = RD_CLIENT_FRAMES_PARSED_OK.fetch_add(1, Ordering::Relaxed) + 1;
-            if n == 1 || n % 60 == 0 {
+            if n == 1 || n.is_multiple_of(60) {
                 rd_append_diag_log(
-                    "flutterdemo2_rd_client.log",
+                    "lan_transfer_rd_client.log",
                     &format!(
                         "[rd-client] video frames parsed (ok): {n} (~{}ms host interval; log file in %TEMP%)",
                         FRAME_INTERVAL_MS
@@ -327,20 +321,15 @@ pub fn spawn_remote_desktop_listener(
         Some(p) => TcpListener::bind(("0.0.0.0", p)),
         None => TcpListener::bind(("0.0.0.0", 0)),
     }
-    .map_err(|e| {
-        ApiError::new(
-            "RD_BIND_FAILED",
-            format!("远程桌面端口绑定失败: {e}"),
-        )
-    })?;
+    .map_err(|e| ApiError::new("RD_BIND_FAILED", format!("远程桌面端口绑定失败: {e}")))?;
     let port = listener
         .local_addr()
         .map_err(|e| ApiError::new("RD_BIND_FAILED", format!("{e}")))?
         .port();
 
-    listener.set_nonblocking(true).map_err(|e| {
-        ApiError::new("RD_LISTENER_IO", format!("set_nonblocking: {e}"))
-    })?;
+    listener
+        .set_nonblocking(true)
+        .map_err(|e| ApiError::new("RD_LISTENER_IO", format!("set_nonblocking: {e}")))?;
 
     let shutdown = Arc::new(AtomicBool::new(false));
     let sd = Arc::clone(&shutdown);
@@ -393,12 +382,8 @@ fn read_handshake_token(s: &mut TcpStream) -> std::io::Result<String> {
     }
     let mut tb = vec![0u8; tlen];
     read_exact(s, &mut tb)?;
-    String::from_utf8(tb).map_err(|_| {
-        std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
-            "token utf8",
-        )
-    })
+    String::from_utf8(tb)
+        .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidData, "token utf8"))
 }
 
 fn scale_capture(img: RgbaImage) -> RgbaImage {
@@ -412,9 +397,8 @@ fn scale_capture(img: RgbaImage) -> RgbaImage {
 }
 
 fn capture_primary_rgba() -> Result<(RgbaImage, i32, i32), ApiError> {
-    let mons = Monitor::all().map_err(|e| {
-        ApiError::new("RD_CAPTURE", format!("枚举显示器失败: {e}"))
-    })?;
+    let mons =
+        Monitor::all().map_err(|e| ApiError::new("RD_CAPTURE", format!("枚举显示器失败: {e}")))?;
     if mons.is_empty() {
         return Err(ApiError::new("RD_CAPTURE", "未找到可用显示器"));
     }
@@ -422,23 +406,20 @@ fn capture_primary_rgba() -> Result<(RgbaImage, i32, i32), ApiError> {
         .iter()
         .find(|mo| mo.is_primary().unwrap_or(false))
         .unwrap_or(&mons[0]);
-    let rw = m.width().map_err(|e| ApiError::new("RD_CAPTURE", format!("{e}")))?;
-    let rh = m.height().map_err(|e| ApiError::new("RD_CAPTURE", format!("{e}")))?;
-    let img = m.capture_image().map_err(|e| {
-        ApiError::new("RD_CAPTURE", format!("截屏失败: {e}"))
-    })?;
+    let rw = m
+        .width()
+        .map_err(|e| ApiError::new("RD_CAPTURE", format!("{e}")))?;
+    let rh = m
+        .height()
+        .map_err(|e| ApiError::new("RD_CAPTURE", format!("{e}")))?;
+    let img = m
+        .capture_image()
+        .map_err(|e| ApiError::new("RD_CAPTURE", format!("截屏失败: {e}")))?;
     let rgba = scale_capture(img);
     Ok((rgba, rw as i32, rh as i32))
 }
 
-fn map_pointer_to_screen(
-    x: f64,
-    y: f64,
-    fw: f64,
-    fh: f64,
-    sw: i32,
-    sh: i32,
-) -> (i32, i32) {
+fn map_pointer_to_screen(x: f64, y: f64, fw: f64, fh: f64, sw: i32, sh: i32) -> (i32, i32) {
     if fw <= 0.0 || fh <= 0.0 {
         return (0, 0);
     }
@@ -572,6 +553,7 @@ fn unicode_to_enigo_key(ch: char) -> Option<Key> {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn apply_pointer(
     enigo: &mut Enigo,
     kind: u8,
@@ -622,7 +604,7 @@ fn apply_pointer(
     Ok(())
 }
 
-fn flutter_key_to_enigo(key_code: i32) -> Option<Key> {
+fn rd_key_to_enigo(key_code: i32) -> Option<Key> {
     Some(match key_code {
         -100 => Key::LeftArrow,
         -101 => Key::RightArrow,
@@ -657,7 +639,7 @@ fn apply_key(enigo: &mut Enigo, key_code: i32, down: bool, modifiers: i32) -> Re
 
     sync_modifiers_from_mask(enigo, modifiers)?;
 
-    if let Some(k) = flutter_key_to_enigo(key_code) {
+    if let Some(k) = rd_key_to_enigo(key_code) {
         enigo
             .key(k, dir)
             .map_err(|e| ApiError::new("RD_INPUT", format!("按键: {e}")))?;
@@ -712,9 +694,7 @@ fn dispatch_client_payload(
             } else {
                 0
             };
-            apply_pointer(
-                enigo, kind, x, y, button, delta, modifiers, fw, fh, sw, sh,
-            )
+            apply_pointer(enigo, kind, x, y, button, delta, modifiers, fw, fh, sw, sh)
         }
         MSG_KEY if buf.len() >= 10 => {
             let key_code = i32::from_le_bytes(buf[1..5].try_into().unwrap());
@@ -769,7 +749,7 @@ fn host_drain_client_control_on_stream(
         let len = u32::from_le_bytes(acc[..4].try_into().unwrap()) as usize;
         if len == 0 || len > MAX_PAYLOAD as usize {
             rd_append_diag_log(
-                "flutterdemo2_rd_host.log",
+                "lan_transfer_rd_host.log",
                 &format!(
                     "[rd-host] 异常控制帧长度 {len}（max={MAX_PAYLOAD}） acc_len={}",
                     acc.len()
@@ -784,9 +764,9 @@ fn host_drain_client_control_on_stream(
         acc.drain(..4 + len);
 
         let n = RD_HOST_CONTROL_RX.fetch_add(1, Ordering::Relaxed) + 1;
-        if n == 1 || n % 40 == 0 {
+        if n == 1 || n.is_multiple_of(40) {
             rd_append_diag_log(
-                "flutterdemo2_rd_host.log",
+                "lan_transfer_rd_host.log",
                 &format!(
                     "[rd-host] rx control #{n} len={} tag={}",
                     frame.len(),
@@ -797,11 +777,8 @@ fn host_drain_client_control_on_stream(
         if let Some(ref mut e) = enigo {
             if let Err(err) = dispatch_client_payload(e, &frame, fw, fh, sw, sh) {
                 rd_append_diag_log(
-                    "flutterdemo2_rd_host.log",
-                    &format!(
-                        "[rd-host] 处理键鼠包失败: {} — {}",
-                        err.code, err.message
-                    ),
+                    "lan_transfer_rd_host.log",
+                    &format!("[rd-host] 处理键鼠包失败: {} — {}", err.code, err.message),
                 );
             }
         }
@@ -812,20 +789,19 @@ fn host_drain_client_control_on_stream(
 
 fn run_host_session(mut stream: TcpStream, expected_token: String) -> Result<(), ApiError> {
     stream.set_nodelay(true).ok();
-    let token = read_handshake_token(&mut stream).map_err(|e| {
-        ApiError::new("RD_HANDSHAKE", format!("读握手失败: {e}"))
-    })?;
+    let token = read_handshake_token(&mut stream)
+        .map_err(|e| ApiError::new("RD_HANDSHAKE", format!("读握手失败: {e}")))?;
     if token != expected_token {
         let _ = stream.write_all(&[1u8]);
         return Err(ApiError::new("RD_AUTH", "令牌不匹配"));
     }
-    stream.write_all(&[0u8]).map_err(|e| {
-        ApiError::new("RD_HANDSHAKE", format!("写握手应答: {e}"))
-    })?;
+    stream
+        .write_all(&[0u8])
+        .map_err(|e| ApiError::new("RD_HANDSHAKE", format!("写握手应答: {e}")))?;
 
-    let log_path = std::env::temp_dir().join("flutterdemo2_rd_host.log");
+    let log_path = diag_log_path("lan_transfer_rd_host.log");
     rd_append_diag_log(
-        "flutterdemo2_rd_host.log",
+        "lan_transfer_rd_host.log",
         &format!(
             "[rd-host] 会话开始；控制帧与视频共用主 TcpStream 非阻塞拉取（见 {}）",
             log_path.display()
@@ -840,7 +816,7 @@ fn run_host_session(mut stream: TcpStream, expected_token: String) -> Result<(),
         Ok(e) => Some(e),
         Err(e) => {
             rd_append_diag_log(
-                "flutterdemo2_rd_host.log",
+                "lan_transfer_rd_host.log",
                 &format!("[rd-host] Enigo::new 失败，仅收包不注入: {e:?}"),
             );
             None
@@ -867,7 +843,7 @@ fn run_host_session(mut stream: TcpStream, expected_token: String) -> Result<(),
             Ok(false) => break,
             Err(e) => {
                 rd_append_diag_log(
-                    "flutterdemo2_rd_host.log",
+                    "lan_transfer_rd_host.log",
                     &format!("[rd-host] drain 结束: {} — {}", e.code, e.message),
                 );
                 break;
@@ -914,20 +890,13 @@ pub fn client_connect(host: &str, port: u16, session_token: &str) -> Result<(), 
             .lock()
             .map_err(|_| ApiError::new("INTERNAL", "client mutex poisoned"))?;
         if g.is_some() {
-            return Err(ApiError::new(
-                "CLIENT_BUSY",
-                "已有远程连接，请先断开",
-            ));
+            return Err(ApiError::new("CLIENT_BUSY", "已有远程连接，请先断开"));
         }
     }
 
     let addr = format!("{host}:{port}");
-    let mut stream = TcpStream::connect(&addr).map_err(|e| {
-        ApiError::new(
-            "TCP_CONNECT_FAILED",
-            format!("无法连接 {addr}: {e}"),
-        )
-    })?;
+    let mut stream = TcpStream::connect(&addr)
+        .map_err(|e| ApiError::new("TCP_CONNECT_FAILED", format!("无法连接 {addr}: {e}")))?;
     stream.set_nodelay(true).ok();
 
     let tok = session_token.as_bytes();
@@ -939,24 +908,19 @@ pub fn client_connect(host: &str, port: u16, session_token: &str) -> Result<(), 
     hs.extend_from_slice(&RD_VERSION.to_le_bytes());
     hs.extend_from_slice(&(tok.len() as u16).to_le_bytes());
     hs.extend_from_slice(tok);
-    write_all(&mut stream, &hs).map_err(|e| {
-        ApiError::new("RD_HANDSHAKE", format!("写握手: {e}"))
-    })?;
+    write_all(&mut stream, &hs)
+        .map_err(|e| ApiError::new("RD_HANDSHAKE", format!("写握手: {e}")))?;
 
     let mut status = [0u8; 1];
-    read_exact(&mut stream, &mut status).map_err(|e| {
-        ApiError::new("RD_HANDSHAKE", format!("读握手结果: {e}"))
-    })?;
+    read_exact(&mut stream, &mut status)
+        .map_err(|e| ApiError::new("RD_HANDSHAKE", format!("读握手结果: {e}")))?;
     if status[0] != 0 {
-        return Err(ApiError::new(
-            "RD_AUTH",
-            "被控端拒绝连接（请核对会话令牌）",
-        ));
+        return Err(ApiError::new("RD_AUTH", "被控端拒绝连接（请核对会话令牌）"));
     }
 
-    let reader = stream.try_clone().map_err(|e| {
-        ApiError::new("RD_IO", format!("clone: {e}"))
-    })?;
+    let reader = stream
+        .try_clone()
+        .map_err(|e| ApiError::new("RD_IO", format!("clone: {e}")))?;
     let shutdown = Arc::new(AtomicBool::new(false));
     let sd_r = Arc::clone(&shutdown);
     let join = thread::spawn(move || {

@@ -1,17 +1,21 @@
-# flutterdemo2
+# LanTransfer（内网传输工具）
 
-A new Flutter project.
+纯 Rust + egui/eframe 实现的局域网文件传输与远程协助工具。
 
-## Getting Started
+## 运行
 
-This project is a starting point for a Flutter application.
+在 `rust` 目录下：
 
-A few resources to get you started if this is your first Flutter project:
+```bash
+cargo run --bin lan_transfer
+```
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+## 构建（Release）
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+```bash
+cargo build --release --bin lan_transfer
+```
+
+生成的可执行文件位于：
+
+`rust/target/release/lan_transfer(.exe)`
